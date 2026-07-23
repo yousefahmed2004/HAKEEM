@@ -1,0 +1,30 @@
+# Backend
+backend/node_modules/
+backend/db/pharmacy_bot.db
+backend/.env.local
+
+# Frontend
+app/node_modules/
+app/dist/
+app/.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Temp
+temp/
+tmp/
