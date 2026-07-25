@@ -69,9 +69,9 @@ app.use((err, req, res, next) => {
 /* ============================================================
    تشغيل الخادم
    ============================================================ */
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
     console.log(`\n${'='.repeat(60)}`);
-    console.log(`✅ HAKEEM Backend يعمل على: http://localhost:${PORT}`);
+    console.log(`✅ HAKEEM Backend يعمل على: http://0.0.0.0:${PORT}`);
     console.log(`${'='.repeat(60)}\n`);
     console.log("📊 قاعدة البيانات: PostgreSQL");
     console.log("🗄️ الاتصال: backend/db/database.js\n");
