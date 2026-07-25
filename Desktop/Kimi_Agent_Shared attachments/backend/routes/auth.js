@@ -1,5 +1,5 @@
 /* ============================================================
-   auth.js — المسارات الخاصة بالمصادقة والمستخدمين
+   auth.js — المسارات الخاصة بالمصادقة والمستخدمين (PostgreSQL)
    ============================================================ */
 const express = require("express");
 const router = express.Router();
@@ -16,7 +16,7 @@ router.post("/login", async (req, res) => {
             return res.status(400).json({ ok: false, error: "اسم المستخدم وكلمة المرور مطلوبان" });
         }
 
-        const user = await get("SELECT * FROM users WHERE LOWER(username) = LOWER(?)", [username.trim()]);
+        const user = await get("SELECT * FROM users WHERE LOWER(username) = LOWER($1)", [username.trim()]);
 
         if (!user || user.password !== password) {
             return res.status(401).json({ ok: false, error: "بيانات الدخول غير صحيحة" });
@@ -41,7 +41,7 @@ router.post("/login", async (req, res) => {
    ============================================================ */
 router.get("/user/:userId", async (req, res) => {
     try {
-        const user = await get("SELECT * FROM users WHERE id = ?", [req.params.userId]);
+        const user = await get("SELECT * FROM users WHERE id = $1", [req.params.userId]);
 
         if (!user) {
             return res.status(404).json({ ok: false, error: "المستخدم غير موجود" });
@@ -67,21 +67,23 @@ router.put("/user/:userId", async (req, res) => {
         delete updates.id;
         delete updates.role;
 
-        const setClause = Object.keys(updates)
-            .map((key) => `${key} = ?`)
-            .join(", ");
-
-        if (setClause.length === 0) {
+        const keys = Object.keys(updates);
+        if (keys.length === 0) {
             return res.status(400).json({ ok: false, error: "لا توجد بيانات للتحديث" });
         }
+
+        // Build SET clause with quoted camelCase columns and $N placeholders
+        const setClause = keys
+            .map((key, i) => `"${key}" = $${i + 1}`)
+            .join(", ");
 
         const values = Object.values(updates);
         values.push(toDbDateTime());
         values.push(userId);
 
-        await run(`UPDATE users SET ${setClause}, updatedAt = ? WHERE id = ?`, values);
+        await run(`UPDATE users SET ${setClause}, "updatedAt" = $${keys.length + 1} WHERE id = $${keys.length + 2}`, values);
 
-        const updatedUser = await get("SELECT * FROM users WHERE id = ?", [userId]);
+        const updatedUser = await get("SELECT * FROM users WHERE id = $1", [userId]);
         delete updatedUser.password;
 
         res.json({ ok: true, user: updatedUser });
@@ -118,7 +120,7 @@ router.post("/pharmacist", async (req, res) => {
             return res.status(400).json({ ok: false, error: "البيانات المطلوبة ناقصة" });
         }
 
-        const existingUser = await get("SELECT id FROM users WHERE LOWER(username) = LOWER(?)", [username]);
+        const existingUser = await get("SELECT id FROM users WHERE LOWER(username) = LOWER($1)", [username]);
         if (existingUser) {
             return res.status(409).json({ ok: false, error: "اسم المستخدم موجود بالفعل" });
         }
@@ -128,12 +130,12 @@ router.post("/pharmacist", async (req, res) => {
         const color = colors[Math.floor(Math.random() * colors.length)];
 
         await run(
-            `INSERT INTO users (id, username, password, role, name, pharmacyName, phone, status, color, createdAt, updatedAt) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO users (id, username, password, role, name, "pharmacyName", phone, status, color, "createdAt", "updatedAt") 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
             [id, username, password, "pharmacist", name, pharmacyName || null, phone || null, "active", color, toDbDateTime(), toDbDateTime()]
         );
 
-        const newUser = await get("SELECT * FROM users WHERE id = ?", [id]);
+        const newUser = await get("SELECT * FROM users WHERE id = $1", [id]);
         delete newUser.password;
 
         res.status(201).json({ ok: true, user: newUser });
@@ -154,13 +156,13 @@ router.patch("/user/:userId/status", async (req, res) => {
             return res.status(400).json({ ok: false, error: "حالة غير صحيحة" });
         }
 
-        await run("UPDATE users SET status = ?, updatedAt = ? WHERE id = ?", [
+        await run("UPDATE users SET status = $1, \"updatedAt\" = $2 WHERE id = $3", [
             status,
             toDbDateTime(),
             req.params.userId,
         ]);
 
-        const user = await get("SELECT * FROM users WHERE id = ?", [req.params.userId]);
+        const user = await get("SELECT * FROM users WHERE id = $1", [req.params.userId]);
         delete user.password;
 
         res.json({ ok: true, user });
