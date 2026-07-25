@@ -197,8 +197,7 @@ const initializeDatabase = async () => {
 
         console.log("✅ تم إنشاء/التحقق من جميع الجداول بنجاح");
         await seedDatabase();
-    } this err -> { } // handled below
-    catch (err) {
+    } catch (err) {
         console.error("❌ خطأ في إنشاء الجداول:", err.message);
     }
 };
