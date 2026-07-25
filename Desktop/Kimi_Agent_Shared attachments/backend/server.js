@@ -1,9 +1,11 @@
 /* ============================================================
    server.js — الخادم الرئيسي
    ============================================================ */
+
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
+const path = require("path");
 require("dotenv").config();
 
 const { initializeDatabase } = require("./db/database");
@@ -12,67 +14,117 @@ const ordersRoutes = require("./routes/orders");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const path = require("path");
 
 /* ============================================================
    Middleware
    ============================================================ */
+
 app.use(cors());
-app.use(bodyParser.json({ limit: "10mb" }));
-app.use(bodyParser.urlencoded({ limit: "10mb", extended: true }));
+
+app.use(bodyParser.json({
+    limit: "10mb"
+}));
+
+app.use(bodyParser.urlencoded({
+    extended: true,
+    limit: "10mb"
+}));
 
 /* ============================================================
-   خدمة الملفات الثابتة (Frontend)
+   الملفات الثابتة (Frontend)
    ============================================================ */
+
 app.use(express.static(path.join(__dirname, "..", "app")));
 
 /* ============================================================
    تهيئة قاعدة البيانات
    ============================================================ */
+
 (async () => {
     try {
         await initializeDatabase();
     } catch (err) {
-        console.error("❌ خطأ في تهيئة قاعدة البيانات:", err.message);
+        console.error("❌ خطأ في تهيئة قاعدة البيانات:", err);
     }
 })();
 
 /* ============================================================
-   المسارات
+   Health Check
    ============================================================ */
-app.use("/api/auth", authRoutes);
-app.use("/api", ordersRoutes);
 
-/* ============================================================
-   مسار الاختبار
-   ============================================================ */
-app.get("/", (req, res) => {
-    res.json({
-        message: "مرحبًا بك في HAKEEM Backend 🏥",
-        version: "1.0.0",
-        endpoints: {
-            auth: "/api/auth",
-            orders: "/api/orders",
-            pharmacists: "/api/pharmacists",
-        },
+app.get("/health", (req, res) => {
+    res.status(200).json({
+        status: "ok",
+        service: "HAKEEM Backend",
+        uptime: process.uptime()
     });
 });
 
 /* ============================================================
-   معالجة الأخطاء
+   Routes
    ============================================================ */
+
+app.use("/api/auth", authRoutes);
+app.use("/api", ordersRoutes);
+
+/* ============================================================
+   الصفحة الرئيسية
+   ============================================================ */
+
+app.get("/", (req, res) => {
+    res.json({
+        success: true,
+        message: "مرحبًا بك في HAKEEM Backend 🏥",
+        version: "1.0.0",
+        endpoints: {
+            health: "/health",
+            auth: "/api/auth",
+            orders: "/api/orders",
+            pharmacists: "/api/pharmacists"
+        }
+    });
+});
+
+/* ============================================================
+   Error Handler
+   ============================================================ */
+
 app.use((err, req, res, next) => {
-    console.error("❌ خطأ غير متوقع:", err.message);
-    res.status(500).json({ ok: false, error: "خطأ في الخادم" });
+    console.error("❌ خطأ غير متوقع:", err);
+    res.status(500).json({
+        success: false,
+        error: "حدث خطأ في الخادم"
+    });
 });
 
 /* ============================================================
    تشغيل الخادم
    ============================================================ */
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`\n${'='.repeat(60)}`);
+
+const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log("\n============================================================");
     console.log(`✅ HAKEEM Backend يعمل على: http://0.0.0.0:${PORT}`);
-    console.log(`${'='.repeat(60)}\n`);
+    console.log("============================================================\n");
     console.log("📊 قاعدة البيانات: PostgreSQL");
-    console.log("🗄️ الاتصال: backend/db/database.js\n");
+    console.log("🗄️ الاتصال: backend/db/database.js");
+});
+
+/* ============================================================
+   Graceful Shutdown
+   ============================================================ */
+
+process.on("SIGTERM", () => {
+    console.log("📴 Received SIGTERM. Closing server...");
+    server.close(() => {
+        console.log("✅ Server stopped successfully.");
+        process.exit(0);
+    });
+});
+
+process.on("SIGINT", () => {
+    console.log("📴 Received SIGINT. Closing server...");
+    server.close(() => {
+        console.log("✅ Server stopped successfully.");
+        process.exit(0);
+    });
 });
