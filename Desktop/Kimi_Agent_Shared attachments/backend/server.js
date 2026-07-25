@@ -22,9 +22,9 @@ app.use(bodyParser.json({ limit: "10mb" }));
 app.use(bodyParser.urlencoded({ limit: "10mb", extended: true }));
 
 /* ============================================================
-   خدمة الملفات الثابتة (Frontend)
+   خدمة الملفات الثابتة (Frontend) - تم تعديل المسار ليطابق مكان فولدر app جوه backend
    ============================================================ */
-app.use(express.static(path.join(__dirname, "..", "app")));
+app.use(express.static(path.join(__dirname, "app")));
 
 /* ============================================================
    تهيئة قاعدة البيانات
@@ -44,9 +44,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api", ordersRoutes);
 
 /* ============================================================
-   مسار الاختبار
+   مسار الاختبار أو الـ API (لو حابب تخليه يرجع JSON في مسار معين، أو تسيبه يفتح index.html تلقائياً)
    ============================================================ */
-app.get("/", (req, res) => {
+app.get("/api/status", (req, res) => {
     res.json({
         message: "مرحبًا بك في HAKEEM Backend 🏥",
         version: "1.0.0",
