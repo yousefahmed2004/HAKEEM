@@ -1,5 +1,5 @@
 /* ============================================================
-   orders.js — مسارات الطلبات
+   orders.js — مسارات الطلبات (PostgreSQL)
    ============================================================ */
 const express = require("express");
 const router = express.Router();
@@ -16,37 +16,42 @@ router.get("/orders", async (req, res) => {
         let query = `
             SELECT 
                 o.*,
-                GROUP_CONCAT(DISTINCT oi.medicine_name) as items,
-                GROUP_CONCAT(DISTINCT oi.status) as item_statuses
+                COALESCE(
+                    (SELECT string_agg(DISTINCT oi.medicine_name, ',') FROM order_items oi WHERE oi.order_id = o.id),
+                    ''
+                ) as items,
+                COALESCE(
+                    (SELECT string_agg(DISTINCT oi.status, ',') FROM order_items oi WHERE oi.order_id = o.id),
+                    ''
+                ) as item_statuses
             FROM orders o
-            LEFT JOIN order_items oi ON o.id = oi.order_id
         `;
 
         if (status) {
-            query += ` WHERE o.status = '${status}'`;
+            query += ` WHERE o.status = $1`;
         }
 
-        query += ` GROUP BY o.id ORDER BY o.created_at DESC`;
+        query += ` GROUP BY o.id ORDER BY o."createdAt" DESC`;
 
-        const [orders] = await db.execute(query);
+        const rows = status ? await db.all(query, [status]) : await db.all(query);
 
         // تحويل البيانات إلى الشكل المطلوب
-        const formattedOrders = orders.map((order) => ({
+        const formattedOrders = rows.map((order) => ({
             id: String(order.id),
-            customerName: order.customer_name,
+            customerName: order.customerName || order.customer_name,
             phone: order.phone || "",
             address: order.address || "",
             items: order.items ? order.items.split(",") : [],
-            prescriptionImage: order.prescription_image || "",
+            prescriptionImage: order.prescriptionImage || order.prescription_image || "",
             status: order.status || "pending",
-            createdAt: order.created_at ? new Date(order.created_at).toISOString() : new Date().toISOString(),
-            pharmacyId: order.pharmacy_id || null,
-            pharmacyName: order.pharmacy_name || null,
+            createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
+            pharmacyId: order.pharmacyId || order.pharmacy_id || null,
+            pharmacyName: order.pharmacyName || order.pharmacy_name || null,
             price: order.price || null,
-            availableItems: order.available_items ? JSON.parse(order.available_items || "[]") : [],
-            unavailableItems: order.unavailable_items ? JSON.parse(order.unavailable_items || "[]") : [],
+            availableItems: order.availableItems ? (typeof order.availableItems === 'string' ? JSON.parse(order.availableItems || "[]") : order.availableItems) : [],
+            unavailableItems: order.unavailableItems ? (typeof order.unavailableItems === 'string' ? JSON.parse(order.unavailableItems || "[]") : order.unavailableItems) : [],
             notes: order.notes || "",
-            rejectedBy: order.rejected_by ? JSON.parse(order.rejected_by || "[]") : [],
+            rejectedBy: order.rejectedBy ? (typeof order.rejectedBy === 'string' ? JSON.parse(order.rejectedBy || "[]") : order.rejectedBy) : [],
         }));
 
         res.json({ ok: true, orders: formattedOrders });
@@ -65,38 +70,43 @@ router.get("/orders/:id", async (req, res) => {
         const query = `
             SELECT 
                 o.*,
-                GROUP_CONCAT(DISTINCT oi.medicine_name ORDER BY oi.id) as items,
-                GROUP_CONCAT(DISTINCT oi.status ORDER BY oi.id) as item_statuses
+                COALESCE(
+                    (SELECT string_agg(DISTINCT oi.medicine_name, ',' ORDER BY oi.id) FROM order_items oi WHERE oi.order_id = o.id),
+                    ''
+                ) as items,
+                COALESCE(
+                    (SELECT string_agg(DISTINCT oi.status, ',' ORDER BY oi.id) FROM order_items oi WHERE oi.order_id = o.id),
+                    ''
+                ) as item_statuses
             FROM orders o
             LEFT JOIN order_items oi ON o.id = oi.order_id
-            WHERE o.id = ?
+            WHERE o.id = $1
             GROUP BY o.id
         `;
-        const [orders] = await db.execute(query, [id]);
+        const order = await db.get(query, [id]);
 
-        if (orders.length === 0) {
+        if (!order) {
             return res.status(404).json({ ok: false, error: "الطلب غير موجود" });
         }
 
-        const order = orders[0];
         const formattedOrder = {
             id: String(order.id),
-            customerName: order.customer_name,
+            customerName: order.customerName || order.customer_name,
             phone: order.phone || "",
             address: order.address || "",
             items: order.items ? order.items.split(",") : [],
-            prescriptionImage: order.prescription_image || "",
+            prescriptionImage: order.prescriptionImage || order.prescription_image || "",
             status: order.status || "pending",
-            createdAt: order.created_at ? new Date(order.created_at).toISOString() : new Date().toISOString(),
-            pharmacyId: order.pharmacy_id || null,
-            pharmacyName: order.pharmacy_name || null,
+            createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
+            pharmacyId: order.pharmacyId || order.pharmacy_id || null,
+            pharmacyName: order.pharmacyName || order.pharmacy_name || null,
             price: order.price || null,
-            availableItems: order.available_items ? JSON.parse(order.available_items || "[]") : [],
-            unavailableItems: order.unavailable_items ? JSON.parse(order.unavailable_items || "[]") : [],
+            availableItems: order.availableItems ? (typeof order.availableItems === 'string' ? JSON.parse(order.availableItems || "[]") : order.availableItems) : [],
+            unavailableItems: order.unavailableItems ? (typeof order.unavailableItems === 'string' ? JSON.parse(order.unavailableItems || "[]") : order.unavailableItems) : [],
             notes: order.notes || "",
-            rejectedBy: order.rejected_by ? JSON.parse(order.rejected_by || "[]") : [],
-            timeline: order.timeline ? JSON.parse(order.timeline || "[]") : [
-                { at: order.created_at || new Date().toISOString(), text: "تم استلام الطلب من الشات بوت", color: "#0ea5e9" }
+            rejectedBy: order.rejectedBy ? (typeof order.rejectedBy === 'string' ? JSON.parse(order.rejectedBy || "[]") : order.rejectedBy) : [],
+            timeline: order.timeline ? (typeof order.timeline === 'string' ? JSON.parse(order.timeline || "[]") : order.timeline) : [
+                { at: order.createdAt || order.created_at || new Date().toISOString(), text: "تم استلام الطلب من الشات بوت", color: "#0ea5e9" }
             ],
         };
 
@@ -114,25 +124,28 @@ router.post("/orders", async (req, res) => {
     try {
         const { customerName, phone, address, items, prescriptionImage, status } = req.body;
 
-        const query = `
-            INSERT INTO orders (customer_name, phone, address, prescription_image, status, created_at)
-            VALUES (?, ?, ?, ?, ?, NOW())
-        `;
-        const [result] = await db.execute(query, [
-            customerName,
-            phone,
-            address,
-            prescriptionImage || "",
-            status || "pending",
-        ]);
+        const result = await db.run(
+            `INSERT INTO orders ("customerName", phone, address, "prescriptionImage", status, "createdAt")
+             VALUES ($1, $2, $3, $4, $5, NOW())
+             RETURNING id`,
+            [
+                customerName,
+                phone,
+                address,
+                prescriptionImage || "",
+                status || "pending",
+            ]
+        );
 
-        const orderId = result.insertId;
+        const orderId = result.id;
 
         // إضافة الأدوية
         if (items && Array.isArray(items)) {
-            const itemQuery = `INSERT INTO order_items (order_id, medicine_name, status) VALUES (?, ?, 'pending')`;
             for (const item of items) {
-                await db.execute(itemQuery, [orderId, item]);
+                await db.run(
+                    `INSERT INTO order_items (order_id, medicine_name, status) VALUES ($1, $2, 'pending')`,
+                    [orderId, item]
+                );
             }
         }
 
@@ -151,24 +164,24 @@ router.put("/orders/:id", async (req, res) => {
         const { id } = req.params;
         const { status, pharmacyId, pharmacyName, availableItems, unavailableItems, price, notes, workflowStatus } = req.body;
 
-        const query = `
-            UPDATE orders 
-            SET status = ?, pharmacy_id = ?, pharmacy_name = ?, 
-                available_items = ?, unavailable_items = ?, 
-                price = ?, notes = ?, workflow_status = ?
-            WHERE id = ?
-        `;
-        await db.execute(query, [
-            status || null,
-            pharmacyId || null,
-            pharmacyName || null,
-            availableItems ? JSON.stringify(availableItems) : null,
-            unavailableItems ? JSON.stringify(unavailableItems) : null,
-            price || null,
-            notes || null,
-            workflowStatus || null,
-            id,
-        ]);
+        await db.run(
+            `UPDATE orders 
+             SET status = $1, "pharmacyId" = $2, "pharmacyName" = $3, 
+                 "availableItems" = $4, "unavailableItems" = $5, 
+                 price = $6, notes = $7, "workflowStatus" = $8
+             WHERE id = $9`,
+            [
+                status || null,
+                pharmacyId || null,
+                pharmacyName || null,
+                availableItems ? JSON.stringify(availableItems) : null,
+                unavailableItems ? JSON.stringify(unavailableItems) : null,
+                price || null,
+                notes || null,
+                workflowStatus || null,
+                id,
+            ]
+        );
 
         res.json({ ok: true, message: "تم تحديث الطلب بنجاح" });
     } catch (err) {
@@ -185,20 +198,19 @@ router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
         const { id, pharmacyId } = req.params;
 
         // جلب الطلب الحالي
-        const [orders] = await db.execute("SELECT * FROM orders WHERE id = ?", [id]);
-        if (orders.length === 0) {
+        const order = await db.get("SELECT * FROM orders WHERE id = $1", [id]);
+        if (!order) {
             return res.status(404).json({ ok: false, error: "الطلب غير موجود" });
         }
 
-        const order = orders[0];
-        let rejectedBy = order.rejected_by ? JSON.parse(order.rejected_by) : [];
+        let rejectedBy = order.rejectedBy ? (typeof order.rejectedBy === 'string' ? JSON.parse(order.rejectedBy) : order.rejectedBy) : [];
 
         if (!rejectedBy.includes(pharmacyId)) {
             rejectedBy.push(pharmacyId);
         }
 
         // التحقق مما إذا كان جميع الصيادلة النشطين قد رفضوا
-        const [activePharmacists] = await db.execute(
+        const activePharmacists = await db.all(
             "SELECT id FROM users WHERE role = 'pharmacist' AND status = 'active'"
         );
         const activeIds = activePharmacists.map((p) => p.id);
@@ -206,8 +218,8 @@ router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
 
         const newStatus = allRejected ? "rejected" : order.status;
 
-        await db.execute(
-            "UPDATE orders SET rejected_by = ?, status = ? WHERE id = ?",
+        await db.run(
+            "UPDATE orders SET \"rejectedBy\" = $1::jsonb, status = $2 WHERE id = $3",
             [JSON.stringify(rejectedBy), newStatus, id]
         );
 
@@ -228,18 +240,18 @@ router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
    ============================================================ */
 router.get("/orders-stats", async (req, res) => {
     try {
-        const [rows] = await db.execute(`
+        const stats = await db.get(`
             SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-                SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) as accepted,
-                SUM(CASE WHEN status = 'partial' THEN 1 ELSE 0 END) as partial,
-                SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected
+                COUNT(*)::int as total,
+                COUNT(*) FILTER (WHERE status = 'pending')::int as pending,
+                COUNT(*) FILTER (WHERE status = 'accepted')::int as accepted,
+                COUNT(*) FILTER (WHERE status = 'partial')::int as partial,
+                COUNT(*) FILTER (WHERE status = 'rejected')::int as rejected
             FROM orders
         `);
 
-        const stats = rows[0] || { total: 0, pending: 0, accepted: 0, partial: 0, rejected: 0 };
-        res.json({ ok: true, stats });
+        const result = stats || { total: 0, pending: 0, accepted: 0, partial: 0, rejected: 0 };
+        res.json({ ok: true, stats: result });
     } catch (err) {
         console.error("❌ خطأ في جلب الإحصائيات:", err.message);
         res.status(500).json({ ok: false, error: "فشل في جلب الإحصائيات" });
