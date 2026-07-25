@@ -78,13 +78,13 @@ const all = async (sql, params = []) => {
 };
 
 /* ============================================================
-   Create tables (PostgreSQL syntax)
+   Create tables (PostgreSQL syntax) - Ordered correctly
    ============================================================ */
 const initializeDatabase = async () => {
     try {
         await testConnection();
 
-        // --- users table (existing schema) ---
+        // 1. --- users table (Must be created first for Foreign Keys) ---
         await run(`
             CREATE TABLE IF NOT EXISTS users (
                 id VARCHAR(100) PRIMARY KEY,
@@ -102,7 +102,7 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // --- orders table (existing schema) ---
+        // 2. --- orders table ---
         await run(`
             CREATE TABLE IF NOT EXISTS orders (
                 id VARCHAR(100) PRIMARY KEY,
@@ -132,7 +132,7 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // --- order_timeline table (existing schema) ---
+        // 3. --- order_timeline table ---
         await run(`
             CREATE TABLE IF NOT EXISTS order_timeline (
                 id SERIAL PRIMARY KEY,
@@ -144,7 +144,7 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // --- settings table (existing schema) ---
+        // 4. --- settings table ---
         await run(`
             CREATE TABLE IF NOT EXISTS settings (
                 id SERIAL PRIMARY KEY,
@@ -159,7 +159,7 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // --- customers table (new schema from server) ---
+        // 5. --- customers table ---
         await run(`
             CREATE TABLE IF NOT EXISTS customers (
                 id SERIAL PRIMARY KEY,
@@ -174,7 +174,7 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // --- n8n_chat_histories table (new schema from server) ---
+        // 6. --- n8n_chat_histories table ---
         await run(`
             CREATE TABLE IF NOT EXISTS n8n_chat_histories (
                 id SERIAL PRIMARY KEY,
@@ -183,7 +183,7 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // --- pharmacies table (new schema from server) ---
+        // 7. --- pharmacies table ---
         await run(`
             CREATE TABLE IF NOT EXISTS pharmacies (
                 id SERIAL PRIMARY KEY,
@@ -197,7 +197,8 @@ const initializeDatabase = async () => {
 
         console.log("✅ تم إنشاء/التحقق من جميع الجداول بنجاح");
         await seedDatabase();
-    } catch (err) {
+    } this err -> { } // handled below
+    catch (err) {
         console.error("❌ خطأ في إنشاء الجداول:", err.message);
     }
 };
