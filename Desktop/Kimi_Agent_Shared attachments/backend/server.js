@@ -33,9 +33,8 @@ app.use(bodyParser.urlencoded({
 /* ============================================================
    الملفات الثابتة (Frontend)
    ============================================================ */
-// ملاحظة: لو مجلد app موجود داخل مجلد backend استخدم: path.join(__dirname, "app")
-// لو مجلد app موجود في الجذر الرئيسي للمشروع استخدم: path.join(__dirname, "..", "app")
-app.use(express.static(path.join(__dirname, "..", "app")));
+// استخدام path.resolve لضمان الوصول لمجلد app في الجذر الرئيسي بغض النظر عن موقع server.js
+app.use(express.static(path.resolve(__dirname, "../app")));
 
 /* ============================================================
    تهيئة قاعدة البيانات
@@ -73,7 +72,7 @@ app.use("/api", ordersRoutes);
    ============================================================ */
 
 app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "..", "app", "index.html"));
+    res.sendFile(path.resolve(__dirname, "../app/index.html"));
 });
 
 /* ============================================================
