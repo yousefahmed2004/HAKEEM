@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HAKEEM — حكيم Dashboard</title>
+  <meta name="description" content="لوحة تحكم HAKEEM — حكيم لاستقبال طلبات الشات بوت وعرضها على الصيدليات" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet" />
+  <link rel="icon" type="image/svg+xml"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230ea5e9' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.5 20.5 3.5 13.5a4.95 4.95 0 1 1 7-7l7 7a4.95 4.95 0 1 1-7 7Z'/%3E%3Cpath d='m8.5 8.5 7 7'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body>
+  <!-- يتم بناء الواجهة بالكامل عبر JavaScript (Login / Dashboard Shell) -->
+  <div id="app"></div>
+
+  <!-- طبقات عامة -->
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="modal-root"></div>
+  <div id="chart-tooltip" class="chart-tooltip" hidden></div>
+
+  <!-- طبقة البيانات والمنطق (Vanilla JS فقط — بدون أي فريمورك) -->
+  <script src="js/api.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/webhook.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/pages1.js"></script>
+  <script src="js/pages2.js"></script>
+  <script src="js/pages3.js"></script>
+  <script src="js/app.js"></script>
+
+  <!-- اختبارات التطوير (اختياري - احذفها في الإنتاج) -->
+  <script src="js/test.js"></script>
+</body>
+
+</html>
