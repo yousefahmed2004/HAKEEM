@@ -22,9 +22,9 @@ app.use(bodyParser.json({ limit: "10mb" }));
 app.use(bodyParser.urlencoded({ limit: "10mb", extended: true }));
 
 /* ============================================================
-   خدمة الملفات الثابتة (Frontend) - تم تعديل المسار ليطابق مكان فولدر app جوه backend
+   خدمة الملفات الثابتة (Frontend)
    ============================================================ */
-app.use(express.static(path.join(__dirname, "app")));
+app.use(express.static(path.join(__dirname, "..", "app")));
 
 /* ============================================================
    تهيئة قاعدة البيانات
@@ -44,9 +44,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api", ordersRoutes);
 
 /* ============================================================
-   مسار الاختبار أو الـ API (لو حابب تخليه يرجع JSON في مسار معين، أو تسيبه يفتح index.html تلقائياً)
+   مسار الاختبار
    ============================================================ */
-app.get("/api/status", (req, res) => {
+app.get("/", (req, res) => {
     res.json({
         message: "مرحبًا بك في HAKEEM Backend 🏥",
         version: "1.0.0",
@@ -73,6 +73,6 @@ app.listen(PORT, () => {
     console.log(`\n${'='.repeat(60)}`);
     console.log(`✅ HAKEEM Backend يعمل على: http://localhost:${PORT}`);
     console.log(`${'='.repeat(60)}\n`);
-    console.log("📊 قاعدة البيانات: MySQL");
+    console.log("📊 قاعدة البيانات: PostgreSQL");
     console.log("🗄️ الاتصال: backend/db/database.js\n");
 });
