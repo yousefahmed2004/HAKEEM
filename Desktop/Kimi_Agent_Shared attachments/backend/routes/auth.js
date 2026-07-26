@@ -39,7 +39,7 @@ router.post("/login", async (req, res) => {
    ============================================================ */
 async function handleUserRegistration(req, res) {
     try {
-        const { username, password, name, pharmacyName, phone, role } = req.body;
+        const { username, password, name, pharmacyName, phone, role, maxActiveOrders } = req.body;
 
         if (!username || !password) {
             return res.status(400).json({ ok: false, error: "اسم المستخدم وكلمة المرور مطلوبان" });
@@ -56,9 +56,9 @@ async function handleUserRegistration(req, res) {
         const color = colors[Math.floor(Math.random() * colors.length)];
 
         await run(
-            `INSERT INTO users (id, username, password, role, name, "pharmacyName", phone, status, color, "createdAt", "updatedAt") 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-            [id, username, password, userRole, name || null, pharmacyName || null, phone || null, "active", color, toDbDateTime(), toDbDateTime()]
+            `INSERT INTO users (id, username, password, role, name, "pharmacyName", phone, status, color, "maxActiveOrders", "createdAt", "updatedAt") 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+            [id, username, password, userRole, name || null, pharmacyName || null, phone || null, "active", color, Number(maxActiveOrders) || 3, toDbDateTime(), toDbDateTime()]
         );
 
         const newUser = await get("SELECT * FROM users WHERE id = $1", [id]);
