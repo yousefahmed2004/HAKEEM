@@ -1,15 +1,13 @@
 /* ============================================================
    webhook.js — طبقة التكامل مع n8n عبر Backend Proxy
    ============================================================
-   يتم إرسال طلبات POST إلى Backend Proxy (http://localhost:5000)
+   يتم إرسال طلبات POST إلى Backend Proxy
    الذي يقوم بدوره بتوجيه الطلب إلى n8n Webhook.
    هذا يحل مشكلة CORS في المتصفح.
    ============================================================ */
 window.App = window.App || {};
-
 (function () {
-  const API_BASE = "http://localhost:5000/api";
-
+  const API_BASE = "/api"; // مسار نسبي عشان يشتغل على أي دومين (Easypanel / hakeem.sbs) مش بس localhost
   App.webhook = {
     /**
      * استقبال طلب جديد قادم من n8n / الشات بوت
@@ -31,7 +29,6 @@ window.App = window.App || {};
       };
       return App.store.addOrder(order);
     },
-
     /**
      * إرسال تحديث حالة الطلب إلى n8n عبر Backend Proxy
      * لتجنب مشكلة CORS في المتصفح.
@@ -44,13 +41,10 @@ window.App = window.App || {};
         console.error("[Webhook] ❌ لا يوجد طلب صالح للإرسال");
         return false;
       }
-
       const payload = {
         order_id: Number(order.id),
       };
-
       console.log(`%c[Webhook] إرسال إلى Proxy Backend:`, "color:#0ea5e9;font-weight:bold", JSON.stringify(payload));
-
       try {
         const response = await fetch(`${API_BASE}/webhook/shipping`, {
           method: "POST",
@@ -59,7 +53,6 @@ window.App = window.App || {};
           },
           body: JSON.stringify(payload),
         });
-
         if (response.ok) {
           console.log(`%c[Webhook ✓] تم إرسال الطلب #${order.id} إلى n8n بنجاح`, "color:#10b981;font-weight:bold");
           return true;
@@ -70,12 +63,10 @@ window.App = window.App || {};
         }
       } catch (err) {
         console.error("[Webhook ✗] خطأ في الاتصال بـ Backend Proxy:", err.message);
-        console.error("[Webhook] تأكد من تشغيل الخادم على http://localhost:5000");
         return false;
       }
     },
   };
-
   /* دالة اختبار — يمكن تشغيلها من Console:
      await App.webhook.testConnection() */
   App.webhook.testConnection = async function () {
