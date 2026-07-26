@@ -1,112 +1,115 @@
 /* ============================================================
    api.js — ملف الاتصال بالخادم والـ API
    ============================================================ */
+window.App = window.App || {};
 
-// استخدام مسار نسبي للـ API ليعمل بكفاءة على أي دومين (مثل hakeem.sbs) تلقائياً
-const API_BASE_URL = "/api";
+(function () {
+    // استخدام مسار نسبي للـ API ليعمل بكفاءة على أي دومين (مثل hakeem.sbs) تلقائياً
+    const API_BASE_URL = "/api";
 
-/**
- * دالة مساعدة لإرسال الطلبات للـ Backend
- */
-async function apiRequest(endpoint, options = {}) {
-    try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-            headers: {
-                "Content-Type": "application/json",
-                ...options.headers
-            },
-            ...options
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.error || "حدث خطأ في الاتصال بالخادم");
+    /**
+     * دالة مساعدة لإرسال الطلبات للـ Backend
+     */
+    async function apiRequest(endpoint, options = {}) {
+        try {
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                headers: {
+                    "Content-Type": "application/json",
+                    ...options.headers
+                },
+                ...options
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || "حدث خطأ في الاتصال بالخادم");
+            }
+            return data;
+        } catch (error) {
+            console.error(`❌ خطأ في الطلب (${endpoint}):`, error.message);
+            throw error;
         }
-
-        return data;
-    } catch (error) {
-        console.error(`❌ خطأ في الطلب (${endpoint}):`, error.message);
-        throw error;
     }
-}
 
-/* ============================================================
-   خدمات المصادقة (Auth Services)
-   ============================================================ */
+    /* ============================================================
+       App.api — الواجهة الموحّدة اللي بيستخدمها store.js
+       ============================================================ */
+    App.api = {
 
-async function loginUser(username, password) {
-    try {
-        const result = await apiRequest("/auth/login", {
-            method: "POST",
-            body: JSON.stringify({ username, password })
-        });
-        return result;
-    } catch (error) {
-        console.error("❌ خطأ في تسجيل الدخول:", error);
-        throw error;
-    }
-}
+        /* ---------- المصادقة ---------- */
+        async login(username, password) {
+            return apiRequest("/auth/login", {
+                method: "POST",
+                body: JSON.stringify({ username, password })
+            });
+        },
 
-async function registerUser(userData) {
-    try {
-        const result = await apiRequest("/auth/register", {
-            method: "POST",
-            body: JSON.stringify(userData)
-        });
-        return result;
-    } catch (error) {
-        console.error("❌ خطأ في إنشاء الحساب:", error);
-        throw error;
-    }
-}
+        async addPharmacist(payload) {
+            // الباك إند بيقبلها من /auth/register أو /auth/pharmacist (نفس الدالة)
+            return apiRequest("/auth/pharmacist", {
+                method: "POST",
+                body: JSON.stringify({ ...payload, role: "pharmacist" })
+            });
+        },
 
-async function getPharmacists() {
-    try {
-        const result = await apiRequest("/auth/pharmacists");
-        return result;
-    } catch (error) {
-        console.error("❌ خطأ في جلب قائمة الصيادلة:", error);
-        return { success: false, data: [] };
-    }
-}
+        async updateProfile(userId, patch) {
+            return apiRequest(`/auth/user/${userId}`, {
+                method: "PUT",
+                body: JSON.stringify(patch)
+            });
+        },
 
-/* ============================================================
-   خدمات الطلبات والبيانات (Orders Services)
-   ============================================================ */
+        async updateUserStatus(userId, status) {
+            return apiRequest(`/auth/user/${userId}/status`, {
+                method: "PATCH",
+                body: JSON.stringify({ status })
+            });
+        },
 
-async function getOrders() {
-    try {
-        const result = await apiRequest("/orders");
-        return result;
-    } catch (error) {
-        console.error("❌ خطأ في جلب الطلبات:", error);
-        return { success: false, data: [] };
-    }
-}
+        async getPharmacists() {
+            try {
+                return await apiRequest("/auth/pharmacists");
+            } catch (error) {
+                console.error("❌ خطأ في جلب قائمة الصيادلة:", error);
+                return { ok: false, pharmacists: [] };
+            }
+        },
 
-async function createOrder(orderData) {
-    try {
-        const result = await apiRequest("/orders", {
-            method: "POST",
-            body: JSON.stringify(orderData)
-        });
-        return result;
-    } catch (error) {
-        console.error("❌ خطأ في إنشاء الطلب:", error);
-        throw error;
-    }
-}
+        /* ---------- الطلبات ---------- */
+        async getOrders() {
+            try {
+                return await apiRequest("/orders");
+            } catch (error) {
+                console.error("❌ خطأ في جلب الطلبات:", error);
+                return { ok: false, orders: [] };
+            }
+        },
 
-async function updateOrderStatus(orderId, status) {
-    try {
-        const result = await apiRequest(`/orders/${orderId}/status`, {
-            method: "PATCH",
-            body: JSON.stringify({ status })
-        });
-        return result;
-    } catch (error) {
-        console.error("❌ خطأ في تحديث حالة الطلب:", error);
-        throw error;
-    }
-}
+        async getOrder(id) {
+            return apiRequest(`/orders/${id}`);
+        },
+
+        async createOrder(orderData) {
+            return apiRequest("/orders", {
+                method: "POST",
+                body: JSON.stringify(orderData)
+            });
+        },
+
+        async updateOrder(id, patch) {
+            return apiRequest(`/orders/${id}`, {
+                method: "PUT",
+                body: JSON.stringify(patch)
+            });
+        },
+
+        async rejectOrder(id, pharmacyId) {
+            return apiRequest(`/orders/${id}/reject/${pharmacyId}`, {
+                method: "PATCH"
+            });
+        },
+
+        async getOrdersStats() {
+            return apiRequest("/orders-stats");
+        },
+    };
+})();
