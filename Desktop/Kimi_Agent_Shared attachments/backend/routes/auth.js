@@ -26,9 +26,7 @@ router.post("/login", async (req, res) => {
             return res.status(403).json({ ok: false, error: "هذا الحساب موقوف" });
         }
 
-        // إزالة كلمة المرور من الاستجابة
         delete user.password;
-
         res.json({ ok: true, user });
     } catch (err) {
         console.error("❌ خطأ في تسجيل الدخول:", err.message);
@@ -37,9 +35,9 @@ router.post("/login", async (req, res) => {
 });
 
 /* ============================================================
-   تسجيل حساب جديد (Register)
+   دالة موحدة لتسجيل مستخدم جديد (تغطي كافة المسارات المحتملة)
    ============================================================ */
-router.post("/register", async (req, res) => {
+async function handleUserRegistration(req, res) {
     try {
         const { username, password, name, pharmacyName, phone, role } = req.body;
 
@@ -71,7 +69,12 @@ router.post("/register", async (req, res) => {
         console.error("❌ خطأ في التسجيل:", err.message);
         res.status(500).json({ ok: false, error: "خطأ في الخادم" });
     }
-});
+}
+
+// تغطية كل مسارات التسجيل المحتملة من الـ Frontend
+router.post("/register", handleUserRegistration);
+router.post("/signup", handleUserRegistration);
+router.post("/pharmacist", handleUserRegistration);
 
 /* ============================================================
    الحصول على بيانات المستخدم الحالي
@@ -100,7 +103,6 @@ router.put("/user/:userId", async (req, res) => {
         const { userId } = req.params;
         const updates = req.body;
 
-        // منع تعديل معرّف المستخدم والدور
         delete updates.id;
         delete updates.role;
 
@@ -141,42 +143,6 @@ router.get("/pharmacists", async (req, res) => {
         res.json({ ok: true, pharmacists });
     } catch (err) {
         console.error("❌ خطأ في جلب قائمة الصيادلة:", err.message);
-        res.status(500).json({ ok: false, error: "خطأ في الخادم" });
-    }
-});
-
-/* ============================================================
-   إضافة صيدلي جديد (Admin فقط)
-   ============================================================ */
-router.post("/pharmacist", async (req, res) => {
-    try {
-        const { username, password, name, pharmacyName, phone } = req.body;
-
-        if (!username || !password || !name) {
-            return res.status(400).json({ ok: false, error: "البيانات المطلوبة ناقصة" });
-        }
-
-        const existingUser = await get("SELECT id FROM users WHERE LOWER(username) = LOWER($1)", [username]);
-        if (existingUser) {
-            return res.status(409).json({ ok: false, error: "اسم المستخدم موجود بالفعل" });
-        }
-
-        const id = `u-ph-${Date.now()}`;
-        const colors = ["#0ea5e9", "#10b981", "#8b5cf6", "#f59e0b", "#06b6d4"];
-        const color = colors[Math.floor(Math.random() * colors.length)];
-
-        await run(
-            `INSERT INTO users (id, username, password, role, name, "pharmacyName", phone, status, color, "createdAt", "updatedAt") 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-            [id, username, password, "pharmacist", name, pharmacyName || null, phone || null, "active", color, toDbDateTime(), toDbDateTime()]
-        );
-
-        const newUser = await get("SELECT * FROM users WHERE id = $1", [id]);
-        delete newUser.password;
-
-        res.status(201).json({ ok: true, user: newUser });
-    } catch (err) {
-        console.error("❌ خطأ في إضافة صيدلي:", err.message);
         res.status(500).json({ ok: false, error: "خطأ في الخادم" });
     }
 });
