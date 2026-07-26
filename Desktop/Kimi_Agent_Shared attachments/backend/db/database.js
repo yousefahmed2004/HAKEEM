@@ -132,6 +132,18 @@ const initializeDatabase = async () => {
             )
         `);
 
+        // 2.5. --- order_items table (Required by orders.js queries: string_agg on order_items) ---
+        await run(`
+            CREATE TABLE IF NOT EXISTS order_items (
+                id SERIAL PRIMARY KEY,
+                order_id VARCHAR(100) NOT NULL,
+                medicine_name VARCHAR(255) NOT NULL,
+                status VARCHAR(50) DEFAULT 'pending',
+                "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+                CONSTRAINT fk_order_items_order FOREIGN KEY (order_id) REFERENCES orders(id)
+            )
+        `);
+
         // 3. --- order_timeline table ---
         await run(`
             CREATE TABLE IF NOT EXISTS order_timeline (
