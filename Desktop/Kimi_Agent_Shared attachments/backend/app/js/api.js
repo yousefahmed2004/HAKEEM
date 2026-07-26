@@ -61,6 +61,16 @@ async function registerUser(userData) {
     }
 }
 
+async function getPharmacists() {
+    try {
+        const result = await apiRequest("/auth/pharmacists");
+        return result;
+    } catch (error) {
+        console.error("❌ خطأ في جلب قائمة الصيادلة:", error);
+        return { success: false, data: [] };
+    }
+}
+
 /* ============================================================
    خدمات الطلبات والبيانات (Orders Services)
    ============================================================ */
