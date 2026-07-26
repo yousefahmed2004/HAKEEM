@@ -37,6 +37,43 @@ router.post("/login", async (req, res) => {
 });
 
 /* ============================================================
+   تسجيل حساب جديد (Register)
+   ============================================================ */
+router.post("/register", async (req, res) => {
+    try {
+        const { username, password, name, pharmacyName, phone, role } = req.body;
+
+        if (!username || !password) {
+            return res.status(400).json({ ok: false, error: "اسم المستخدم وكلمة المرور مطلوبان" });
+        }
+
+        const existingUser = await get("SELECT id FROM users WHERE LOWER(username) = LOWER($1)", [username]);
+        if (existingUser) {
+            return res.status(409).json({ ok: false, error: "اسم المستخدم موجود بالفعل" });
+        }
+
+        const userRole = role || "pharmacist";
+        const id = `u-${userRole === "admin" ? "admin" : "ph"}-${Date.now()}`;
+        const colors = ["#0ea5e9", "#10b981", "#8b5cf6", "#f59e0b", "#06b6d4"];
+        const color = colors[Math.floor(Math.random() * colors.length)];
+
+        await run(
+            `INSERT INTO users (id, username, password, role, name, "pharmacyName", phone, status, color, "createdAt", "updatedAt") 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [id, username, password, userRole, name || null, pharmacyName || null, phone || null, "active", color, toDbDateTime(), toDbDateTime()]
+        );
+
+        const newUser = await get("SELECT * FROM users WHERE id = $1", [id]);
+        delete newUser.password;
+
+        res.status(201).json({ ok: true, user: newUser });
+    } catch (err) {
+        console.error("❌ خطأ في التسجيل:", err.message);
+        res.status(500).json({ ok: false, error: "خطأ في الخادم" });
+    }
+});
+
+/* ============================================================
    الحصول على بيانات المستخدم الحالي
    ============================================================ */
 router.get("/user/:userId", async (req, res) => {
@@ -72,7 +109,6 @@ router.put("/user/:userId", async (req, res) => {
             return res.status(400).json({ ok: false, error: "لا توجد بيانات للتحديث" });
         }
 
-        // Build SET clause with quoted camelCase columns and $N placeholders
         const setClause = keys
             .map((key, i) => `"${key}" = $${i + 1}`)
             .join(", ");
