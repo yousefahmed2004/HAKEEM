@@ -89,6 +89,11 @@ router.get("/orders/:id", async (req, res) => {
             return res.status(404).json({ ok: false, error: "الطلب غير موجود" });
         }
 
+        const timelineRows = await db.all(
+            `SELECT at, text, color FROM order_timeline WHERE "orderId" = $1 ORDER BY at ASC`,
+            [id]
+        );
+
         const formattedOrder = {
             id: String(order.id),
             customerName: order.customerName || order.customer_name,
@@ -105,7 +110,11 @@ router.get("/orders/:id", async (req, res) => {
             unavailableItems: order.unavailableItems ? (typeof order.unavailableItems === 'string' ? JSON.parse(order.unavailableItems || "[]") : order.unavailableItems) : [],
             notes: order.notes || "",
             rejectedBy: order.rejectedBy ? (typeof order.rejectedBy === 'string' ? JSON.parse(order.rejectedBy || "[]") : order.rejectedBy) : [],
-            timeline: order.timeline ? (typeof order.timeline === 'string' ? JSON.parse(order.timeline || "[]") : order.timeline) : [
+            timeline: timelineRows.length ? timelineRows.map((t) => ({
+                at: new Date(t.at).toISOString(),
+                text: t.text,
+                color: t.color,
+            })) : [
                 { at: order.createdAt || order.created_at || new Date().toISOString(), text: "تم استلام الطلب من الشات بوت", color: "#0ea5e9" }
             ],
         };
@@ -149,6 +158,12 @@ router.post("/orders", async (req, res) => {
             }
         }
 
+        // أول سجل في الـ Timeline
+        await db.run(
+            `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+            [orderId, "تم استلام الطلب من الشات بوت", "#0ea5e9"]
+        );
+
         res.json({ ok: true, order: { id: String(orderId), ...req.body } });
     } catch (err) {
         console.error("❌ خطأ في إنشاء الطلب:", err.message);
@@ -162,14 +177,24 @@ router.post("/orders", async (req, res) => {
 router.put("/orders/:id", async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, pharmacyId, pharmacyName, availableItems, unavailableItems, price, notes, workflowStatus } = req.body;
+        const {
+            status, pharmacyId, pharmacyName, availableItems, unavailableItems,
+            price, notes, workflowStatus,
+            executionPending, executionDeadline, executionCompleted, executionFailed,
+            executedAt, deliveredAt, rejectedBy,
+            timelineText, timelineColor,
+        } = req.body;
 
         await db.run(
             `UPDATE orders 
              SET status = $1, "pharmacyId" = $2, "pharmacyName" = $3, 
                  "availableItems" = $4, "unavailableItems" = $5, 
-                 price = $6, notes = $7, "workflowStatus" = $8
-             WHERE id = $9`,
+                 price = $6, notes = $7, "workflowStatus" = $8,
+                 "executionPending" = $9, "executionDeadline" = $10,
+                 "executionCompleted" = $11, "executionFailed" = $12,
+                 "executedAt" = $13, "deliveredAt" = $14,
+                 "rejectedBy" = $15, "updatedAt" = NOW()
+             WHERE id = $16`,
             [
                 status || null,
                 pharmacyId || null,
@@ -179,9 +204,24 @@ router.put("/orders/:id", async (req, res) => {
                 price || null,
                 notes || null,
                 workflowStatus || null,
+                executionPending ? 1 : 0,
+                executionDeadline || null,
+                executionCompleted ? 1 : 0,
+                executionFailed ? 1 : 0,
+                executedAt || null,
+                deliveredAt || null,
+                rejectedBy ? JSON.stringify(rejectedBy) : null,
                 id,
             ]
         );
+
+        // إضافة سجل جديد في الـ Timeline لو الفرونت إند بعت نص لـ timeline
+        if (timelineText) {
+            await db.run(
+                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [id, timelineText, timelineColor || "#0ea5e9"]
+            );
+        }
 
         res.json({ ok: true, message: "تم تحديث الطلب بنجاح" });
     } catch (err) {
