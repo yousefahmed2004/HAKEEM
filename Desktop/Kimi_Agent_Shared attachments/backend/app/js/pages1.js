@@ -604,7 +604,8 @@ App.pages = App.pages || {};
           submitBtn.disabled = false;
           if (!updated) { close(); return toast("تعذر تنفيذ الإجراء", "ربما تم التعامل مع الطلب بالفعل", "error"); }
           close();
-          App.webhook.sendStatusUpdate(updated);
+          /* لا نستدعي App.webhook.sendStatusUpdate هنا — ده الويب هوك المخصص
+             لرسائل الشحن فقط، ومش مرتبط بحدث التنفيذ الجزئي */
           showCustomerMessage("partial", updated);
           rerender();
         };
@@ -675,7 +676,8 @@ App.pages = App.pages || {};
             (async () => {
               const updated = await S().acceptOrder(o.id, user);
               if (!updated) return toast("تعذر قبول الطلب", "ربما قبله صيدلي آخر بالفعل", "error");
-              App.webhook.sendStatusUpdate(updated);
+              /* لا نستدعي App.webhook.sendStatusUpdate هنا — ده الويب هوك المخصص
+                 لرسائل الشحن فقط، ومش مرتبط بحدث قبول الطلب */
               toast("تم قبول الطلب بنجاح", `الطلب #${o.id} أصبح مسؤوليتك الآن`, "success");
               showCustomerMessage("accepted", updated);
               rerender();
@@ -691,7 +693,8 @@ App.pages = App.pages || {};
       if (receiveBtn) receiveBtn.onclick = async () => {
         const updated = await S().confirmReceiptOrder(o.id, user);
         if (!updated) return toast("تعذر تأكيد الاستلام", "قد يكون الطلب غير متاح أو انتهت المهلة", "error");
-        App.webhook.sendStatusUpdate(updated);
+        /* لا نستدعي App.webhook.sendStatusUpdate هنا — ده الويب هوك المخصص
+           لرسائل الشحن فقط، ومش مرتبط بحدث تأكيد الاستلام */
         rerender();
       };
 
@@ -737,7 +740,8 @@ App.pages = App.pages || {};
               const updated = await S().rejectOrder(o.id, user);
               if (!updated) return toast("تعذر تنفيذ الإجراء", "", "error");
               if (updated.status === "rejected") {
-                App.webhook.sendStatusUpdate(updated);
+                /* لا نستدعي App.webhook.sendStatusUpdate هنا — ده الويب هوك المخصص
+                   لرسائل الشحن فقط، ومش مرتبط بحدث رفض الطلب */
                 toast("تم تسجيل اعتذارك", "اعتذر جميع الصيادلة — أصبح الطلب مرفوضًا", "warning");
               } else {
                 toast("تم تسجيل اعتذارك", "سيظهر الطلب للصيادلة الآخرين", "info");
