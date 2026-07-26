@@ -97,10 +97,14 @@ const initializeDatabase = async () => {
                 "pharmacyName" VARCHAR(255) DEFAULT NULL,
                 status VARCHAR(50) DEFAULT 'active',
                 color VARCHAR(50) DEFAULT NULL,
+                "maxActiveOrders" INT DEFAULT 3,
                 "createdAt" TIMESTAMP NOT NULL,
                 "updatedAt" TIMESTAMP NOT NULL
             )
         `);
+
+        // 1.5. --- ensure maxActiveOrders column exists (for pre-existing users tables) ---
+        await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "maxActiveOrders" INT DEFAULT 3`);
 
         // 2. --- orders table ---
         await run(`
