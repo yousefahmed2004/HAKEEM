@@ -17,27 +17,59 @@ function normalizeStatus(status) {
     return allowed.includes(s) ? s : "pending";
 }
 
-/* دالة مساعدة: استخراج قائمة الأدوية
-   الأولوية لجدول order_items (المصدر الرسمي المستخدم في التحديثات اليدوية)
-   وإذا كان فارغًا، نرجع لعمود orders.items (JSONB) اللي ممكن n8n يكتب فيه مباشرة */
+/* دالة مساعدة: استخراج قائمة الأدوية من أي شكل بيانات محتمل
+   الأولوية:
+   1) جدول order_items (المصدر الرسمي وقت التحديثات اليدوية من الموقع)
+   2) عمود orders.items كـ array حقيقي: ["Panadol", "Augmentin"]
+   3) عمود orders.items كـ object فيه "text" (نص حر من n8n AI):
+      { "text": "Panadol 2 علبة, Augmentin 1 علبة" }
+   4) أي نص عادي تاني (fallback أخير) */
 function resolveItems(order) {
-    // 1) لو string_agg من order_items رجع نتيجة، استخدمها
+    // 1) نتيجة string_agg من order_items (لو موجودة فعلاً)
     if (order.items && typeof order.items === "string" && order.items.trim() !== "") {
-        return order.items.split(",").map((s) => s.trim()).filter(Boolean);
+        const trimmed = order.items.trim();
+        // لو القيمة مش JSON (يعني فعلاً نتيجة string_agg العادية "دواء1,دواء2")
+        if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) {
+            return trimmed.split(",").map((s) => s.trim()).filter(Boolean);
+        }
     }
 
-    // 2) fallback: عمود orders.items الأصلي (JSONB) — قد يكون object/array من الداتابيز
+    // 2/3/4) fallback: عمود orders.items الخام (JSONB)
     const raw = order.rawItems;
     if (!raw) return [];
 
+    let parsed;
     try {
-        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-        if (Array.isArray(parsed)) return parsed.filter(Boolean);
-        if (typeof parsed === "string") return [parsed];
-        return [];
+        parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
     } catch (e) {
-        return [];
+        // مش JSON صالح — عامله كنص عادي
+        return typeof raw === "string" && raw.trim() ? [raw.trim()] : [];
     }
+
+    // شكل array حقيقي: ["Panadol", "Augmentin"]
+    if (Array.isArray(parsed)) {
+        return parsed
+            .map((item) => (typeof item === "string" ? item.trim() : String(item)))
+            .filter(Boolean);
+    }
+
+    // شكل object فيه "items" array (لو الـ n8n اتحدث ليبعت كده)
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) {
+        return parsed.items.map((s) => String(s).trim()).filter(Boolean);
+    }
+
+    // شكل object فيه "text" (نص حر من $fromAI في n8n)
+    if (parsed && typeof parsed === "object" && typeof parsed.text === "string") {
+        return parsed.text
+            .split(/[,،\n]+/)   // تقسيم على فاصلة إنجليزي/عربي أو سطر جديد
+            .map((s) => s.trim())
+            .filter(Boolean);
+    }
+
+    // نص عادي بسيط
+    if (typeof parsed === "string" && parsed.trim()) return [parsed.trim()];
+
+    return [];
 }
 
 /* ============================================================
