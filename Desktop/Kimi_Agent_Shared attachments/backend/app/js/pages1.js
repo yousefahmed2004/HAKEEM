@@ -41,6 +41,14 @@ App.pages = App.pages || {};
       </div>`;
   }
 
+  /* ordersTable
+     ---------------------------------------------------------------
+     نفس الجدول القديم تمامًا فى الشاشات الكبيرة، لكن كل <td> دلوقتي
+     عليه data-label (اسم العمود) + كلاس يوضح دوره (td-id / td-status /
+     td-action ...). الكلاسات والـ data-label دول مش بيظهروا فى حاجة على
+     الديسكتوب، لكن الـ CSS الخاص بالموبايل (max-width:640px) بيستخدمهم
+     عشان يحول كل صف لكارت مرتب بدل ما الجدول يتزنق فى شاشة ضيقة.
+     ---------------------------------------------------------------- */
   function ordersTable(orders, { showPharmacy = true, showPrice = true, showPhone = false } = {}) {
     if (!orders.length) return emptyState("inbox", "لا توجد طلبات", "لم يتم العثور على طلبات مطابقة");
     return `
@@ -56,18 +64,18 @@ App.pages = App.pages || {};
           <tbody>
             ${orders.map((o) => `
               <tr class="row-link" data-order="${o.id}">
-                <td class="cell-main" style="color:var(--sky-700)">#${esc(o.id)}</td>
-                <td>
+                <td class="td-id cell-main" data-label="رقم الطلب" style="color:var(--sky-700)">#${esc(o.id)}</td>
+                <td class="td-customer" data-label="العميل">
                   <div class="cell-main">${esc(o.customerName)}</div>
                   <div class="cell-sub">${esc(o.address)}</div>
                 </td>
-                <td class="mono" dir="ltr" style="text-align:right">${showPhone || o.status === "accepted" ? esc(o.phone) : '<span class="muted small">—</span>'}</td>
-                <td><div class="med-chips">${o.items.slice(0, 2).map((m) => `<span class="med-chip">${esc(m)}</span>`).join("")}${o.items.length > 2 ? `<span class="med-chip more">+${o.items.length - 2}</span>` : ""}</div></td>
-                ${showPharmacy ? `<td>${o.pharmacyName ? esc(o.pharmacyName) : '<span class="muted small">—</span>'}</td>` : ""}
-                <td>${statusBadge(o.status)}</td>
-                ${showPrice ? `<td class="bold" style="color:var(--sky-700)">${o.price != null ? fmtMoney(o.price) : '<span class="muted small">—</span>'}</td>` : ""}
-                <td class="cell-sub" style="white-space:nowrap">${timeAgo(o.createdAt)}</td>
-                <td><button class="icon-btn btn-view" data-order="${o.id}" title="عرض التفاصيل" style="width:34px;height:34px">${icon("eye", 16)}</button></td>
+                <td class="td-phone mono" data-label="الهاتف" dir="ltr" style="text-align:right">${showPhone || o.status === "accepted" ? esc(o.phone) : '<span class="muted small">—</span>'}</td>
+                <td class="td-meds" data-label="الأدوية"><div class="med-chips">${o.items.slice(0, 2).map((m) => `<span class="med-chip">${esc(m)}</span>`).join("")}${o.items.length > 2 ? `<span class="med-chip more">+${o.items.length - 2}</span>` : ""}</div></td>
+                ${showPharmacy ? `<td class="td-pharmacy" data-label="الصيدلية">${o.pharmacyName ? esc(o.pharmacyName) : '<span class="muted small">—</span>'}</td>` : ""}
+                <td class="td-status" data-label="الحالة">${statusBadge(o.status)}</td>
+                ${showPrice ? `<td class="td-price bold" data-label="السعر" style="color:var(--sky-700)">${o.price != null ? fmtMoney(o.price) : '<span class="muted small">—</span>'}</td>` : ""}
+                <td class="td-time cell-sub" data-label="الوقت" style="white-space:nowrap">${timeAgo(o.createdAt)}</td>
+                <td class="td-action" data-label=""><button class="icon-btn btn-view" data-order="${o.id}" title="عرض التفاصيل" style="width:34px;height:34px">${icon("eye", 16)}</button></td>
               </tr>`).join("")}
           </tbody>
         </table>
@@ -110,7 +118,7 @@ App.pages = App.pages || {};
           ${statCard({ label: "الطلبات الجزئية", value: fmtNum(st.partial), icon: "split", bg: "#fef3c7", color: "#d97706" })}
         </div>
 
-        <div class="grid" style="grid-template-columns: 1.9fr 1fr; margin-bottom:20px" id="dash-mid">
+        <div class="grid split-19-1" style="margin-bottom:20px" id="dash-mid">
           <div class="card">
             <div class="card-head">
               <div class="card-title">${icon("chart", 20)} حركة الطلبات — آخر 14 يوم</div>
@@ -124,7 +132,7 @@ App.pages = App.pages || {};
           </div>
         </div>
 
-        <div class="grid" style="grid-template-columns: 1.9fr 1fr" id="dash-bottom">
+        <div class="grid split-19-1" id="dash-bottom">
           <div class="card">
             <div class="card-head">
               <div class="card-title">${icon("clock", 20)} أحدث الطلبات</div>
@@ -158,9 +166,6 @@ App.pages = App.pages || {};
       { label: "جزئي", value: st.partial, color: "#0ea5e9" },
       { label: "مرفوض", value: st.rejected, color: "#ef4444" },
     ], { size: 180, thickness: 24 });
-    const mid = document.getElementById("dash-mid");
-    const bottom = document.getElementById("dash-bottom");
-    if (window.innerWidth < 1100 && mid) { mid.style.gridTemplateColumns = "1fr"; bottom.style.gridTemplateColumns = "1fr"; }
   }
 
   /* ---------- لوحة الصيدلي ---------- */
