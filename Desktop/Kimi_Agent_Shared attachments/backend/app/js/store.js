@@ -763,4 +763,6 @@ window.App = window.App || {};
 
   load();
   hydratePharmacistsFromServer();
+  syncOrders();                     // اجلب الطلبات الحقيقية من الداتابيز فور فتح الموقع
+  setInterval(syncOrders, 6000);    // ثم اعمل مزامنة دورية كل 6 ثواني عشان تلقط أي طلب جديد جاي من n8n مباشرة
 })();
