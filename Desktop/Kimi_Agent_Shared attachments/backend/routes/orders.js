@@ -17,18 +17,11 @@ function normalizeStatus(status) {
     return allowed.includes(s) ? s : "pending";
 }
 
-/* دالة مساعدة: استخراج قائمة الأدوية من أي شكل بيانات محتمل
-   الأولوية:
-   1) جدول order_items (المصدر الرسمي وقت التحديثات اليدوية من الموقع)
-   2) عمود orders.items كـ array حقيقي: ["Panadol", "Augmentin"]
-   3) عمود orders.items كـ object فيه "text" (نص حر من n8n AI):
-      { "text": "Panadol 2 علبة, Augmentin 1 علبة" }
-   4) أي نص عادي تاني (fallback أخير) */
+/* دالة مساعدة: استخراج قائمة الأدوية أو تفاصيل الروشتة من JSON */
 function resolveItems(order) {
-    // 1) نتيجة string_agg من order_items (لو موجودة فعلاً)
+    // 1) نتيجة string_agg من order_items
     if (order.items && typeof order.items === "string" && order.items.trim() !== "") {
         const trimmed = order.items.trim();
-        // لو القيمة مش JSON (يعني فعلاً نتيجة string_agg العادية "دواء1,دواء2")
         if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) {
             return trimmed.split(",").map((s) => s.trim()).filter(Boolean);
         }
@@ -42,31 +35,32 @@ function resolveItems(order) {
     try {
         parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
     } catch (e) {
-        // مش JSON صالح — عامله كنص عادي
         return typeof raw === "string" && raw.trim() ? [raw.trim()] : [];
     }
 
-    // شكل array حقيقي: ["Panadol", "Augmentin"]
+    // شكل array حقيقي: زي اللي بيبعت الروشتة [{"drug_name": "روشتة مصورة", "image_url": "..."}]
     if (Array.isArray(parsed)) {
-        return parsed
-            .map((item) => (typeof item === "string" ? item.trim() : String(item)))
-            .filter(Boolean);
+        return parsed.map((item) => {
+            if (item && typeof item === "object") {
+                return item.drug_name || item.text || JSON.stringify(item);
+            }
+            return typeof item === "string" ? item.trim() : String(item);
+        }).filter(Boolean);
     }
 
-    // شكل object فيه "items" array (لو الـ n8n اتحدث ليبعت كده)
+    // شكل object فيه "items" array
     if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) {
         return parsed.items.map((s) => String(s).trim()).filter(Boolean);
     }
 
-    // شكل object فيه "text" (نص حر من $fromAI في n8n)
+    // شكل object فيه "text"
     if (parsed && typeof parsed === "object" && typeof parsed.text === "string") {
         return parsed.text
-            .split(/[,،\n]+/)   // تقسيم على فاصلة إنجليزي/عربي أو سطر جديد
+            .split(/[,،\n]+/)
             .map((s) => s.trim())
             .filter(Boolean);
     }
 
-    // نص عادي بسيط
     if (typeof parsed === "string" && parsed.trim()) return [parsed.trim()];
 
     return [];
@@ -102,23 +96,36 @@ router.get("/orders", async (req, res) => {
         const rows = status ? await db.all(query, [status]) : await db.all(query);
 
         // تحويل البيانات إلى الشكل المطلوب
-        const formattedOrders = rows.map((order) => ({
-            id: String(order.id),
-            customerName: order.customerName || order.customer_name,
-            phone: order.phone || "",
-            address: order.address || "",
-            items: resolveItems(order),
-            prescriptionImage: order.prescriptionImage || order.prescription_image || "",
-            status: normalizeStatus(order.status),
-            createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
-            pharmacyId: order.pharmacyId || order.pharmacy_id || null,
-            pharmacyName: order.pharmacyName || order.pharmacy_name || null,
-            price: order.price || null,
-            availableItems: order.availableItems ? (typeof order.availableItems === 'string' ? JSON.parse(order.availableItems || "[]") : order.availableItems) : [],
-            unavailableItems: order.unavailableItems ? (typeof order.unavailableItems === 'string' ? JSON.parse(order.unavailableItems || "[]") : order.unavailableItems) : [],
-            notes: order.notes || "",
-            rejectedBy: order.rejectedBy ? (typeof order.rejectedBy === 'string' ? JSON.parse(order.rejectedBy || "[]") : order.rejectedBy) : [],
-        }));
+        const formattedOrders = rows.map((order) => {
+            let extractedImage = order.prescriptionImage || order.prescription_image || "";
+            if (!extractedImage) {
+                try {
+                    const raw = order.rawItems || order.items;
+                    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+                    if (Array.isArray(parsed) && parsed[0] && parsed[0].image_url) {
+                        extractedImage = parsed[0].image_url;
+                    }
+                } catch (e) {}
+            }
+
+            return {
+                id: String(order.id),
+                customerName: order.customerName || order.customer_name,
+                phone: order.phone || "",
+                address: order.address || "",
+                items: resolveItems(order),
+                prescriptionImage: extractedImage,
+                status: normalizeStatus(order.status),
+                createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
+                pharmacyId: order.pharmacyId || order.pharmacy_id || null,
+                pharmacyName: order.pharmacyName || order.pharmacy_name || null,
+                price: order.price || null,
+                availableItems: order.availableItems ? (typeof order.availableItems === 'string' ? JSON.parse(order.availableItems || "[]") : order.availableItems) : [],
+                unavailableItems: order.unavailableItems ? (typeof order.unavailableItems === 'string' ? JSON.parse(order.unavailableItems || "[]") : order.unavailableItems) : [],
+                notes: order.notes || "",
+                rejectedBy: order.rejectedBy ? (typeof order.rejectedBy === 'string' ? JSON.parse(order.rejectedBy || "[]") : order.rejectedBy) : [],
+            };
+        });
 
         res.json({ ok: true, orders: formattedOrders });
     } catch (err) {
@@ -161,13 +168,24 @@ router.get("/orders/:id", async (req, res) => {
             [id]
         );
 
+        let extractedImage = order.prescriptionImage || order.prescription_image || "";
+        if (!extractedImage) {
+            try {
+                const raw = order.rawItems || order.items;
+                const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+                if (Array.isArray(parsed) && parsed[0] && parsed[0].image_url) {
+                    extractedImage = parsed[0].image_url;
+                }
+            } catch (e) {}
+        }
+
         const formattedOrder = {
             id: String(order.id),
             customerName: order.customerName || order.customer_name,
             phone: order.phone || "",
             address: order.address || "",
             items: resolveItems(order),
-            prescriptionImage: order.prescriptionImage || order.prescription_image || "",
+            prescriptionImage: extractedImage,
             status: normalizeStatus(order.status),
             createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
             pharmacyId: order.pharmacyId || order.pharmacy_id || null,
@@ -216,17 +234,15 @@ router.post("/orders", async (req, res) => {
 
         const orderId = result.id;
 
-        // إضافة الأدوية في order_items كمان (يفضل مصدر رسمي موحّد)
         if (items && Array.isArray(items)) {
             for (const item of items) {
                 await db.run(
                     `INSERT INTO order_items (order_id, medicine_name, status) VALUES ($1, $2, 'pending')`,
-                    [orderId, item]
+                    [orderId, typeof item === 'object' ? (item.drug_name || JSON.stringify(item)) : item]
                 );
             }
         }
 
-        // أول سجل في الـ Timeline
         await db.run(
             `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
             [orderId, "تم استلام الطلب من الشات بوت", "#0ea5e9"]
@@ -283,7 +299,6 @@ router.put("/orders/:id", async (req, res) => {
             ]
         );
 
-        // إضافة سجل جديد في الـ Timeline لو الفرونت إند بعت نص لـ timeline
         if (timelineText) {
             await db.run(
                 `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
@@ -305,7 +320,6 @@ router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
     try {
         const { id, pharmacyId } = req.params;
 
-        // جلب الطلب الحالي
         const order = await db.get("SELECT * FROM orders WHERE id = $1", [id]);
         if (!order) {
             return res.status(404).json({ ok: false, error: "الطلب غير موجود" });
@@ -317,7 +331,6 @@ router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
             rejectedBy.push(pharmacyId);
         }
 
-        // التحقق مما إذا كان جميع الصيادلة النشطين قد رفضوا
         const activePharmacists = await db.all(
             "SELECT id FROM users WHERE role = 'pharmacist' AND status = 'active'"
         );
@@ -368,7 +381,6 @@ router.get("/orders-stats", async (req, res) => {
 
 /* ============================================================
    🔁 بروكسي: إرسال تحديث الشحن إلى n8n Webhook
-   يستخدمه الفرونت إند لتجنب مشكلة CORS
    ============================================================ */
 router.post("/webhook/shipping", async (req, res) => {
     const { order_id } = req.body;
