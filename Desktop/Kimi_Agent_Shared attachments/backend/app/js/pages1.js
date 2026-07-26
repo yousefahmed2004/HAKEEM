@@ -701,13 +701,14 @@ App.pages = App.pages || {};
           const updated = await S().updateOrderWorkflowStatus(o.id, user, wf);
           if (!updated) return toast("تعذر تحديث الحالة", "", "error");
 
-          /* إرسال التحديث إلى n8n Webhook */
-          const result = await App.webhook.sendStatusUpdate(updated).catch(() => null);
-
-          /* رسائل نجاح / فشل حسب نوع التحديث */
+          /* الويب هوك الخاص بـ n8n (رسائل واتساب لشركة الشحن والعميل)
+             يتفعّل فقط عند الضغط على زرار "خرج للتوصيل" — باقي الأزرار
+             (استلام / تجهيز / جاهز / تسليم / إلغاء) بتحدّث الحالة محليًا بس
+             ومتبعتش أي إشعار شحن، عشان العميل ميوصلوش رسالة شحن غلط */
           if (wf === "out_for_delivery") {
+            const result = await App.webhook.sendStatusUpdate(updated).catch(() => null);
             if (result) {
-              toast("🚚 تم إرسال للشحن", `الطلب #${o.id} — تم إخطار العميل`, "success");
+              toast("🚚 تم إرسال للشحن", `الطلب #${o.id} — تم إخطار العميل وشركة الشحن`, "success");
             } else {
               toast("⚠️ فشل إرسال الشحن", `الطلب #${o.id} — تحقق من اتصال n8n`, "error");
             }
@@ -715,7 +716,7 @@ App.pages = App.pages || {};
             toast("✅ تم التسليم", `الطلب #${o.id}`, "success");
           } else if (wf === "cancelled") {
             toast("❌ تم إلغاء الطلب", `الطلب #${o.id}`, "warning");
-          } else if (result) {
+          } else {
             toast("تم تحديث الحالة", `الطلب #${o.id}`, "info");
           }
 
