@@ -7,6 +7,39 @@ const db = require("../db/database");
 const https = require("https");
 require("dotenv").config();
 
+/* دالة مساعدة: توحيد قيمة status لحروف صغيرة دايمًا
+   عشان القيم القادمة من n8n (Pending / PENDING / pending)
+   متتطابقش مع الفرونت إند اللي بيقارن بـ "pending" حصريًا */
+function normalizeStatus(status) {
+    if (!status) return "pending";
+    const s = String(status).trim().toLowerCase();
+    const allowed = ["pending", "accepted", "partial", "rejected"];
+    return allowed.includes(s) ? s : "pending";
+}
+
+/* دالة مساعدة: استخراج قائمة الأدوية
+   الأولوية لجدول order_items (المصدر الرسمي المستخدم في التحديثات اليدوية)
+   وإذا كان فارغًا، نرجع لعمود orders.items (JSONB) اللي ممكن n8n يكتب فيه مباشرة */
+function resolveItems(order) {
+    // 1) لو string_agg من order_items رجع نتيجة، استخدمها
+    if (order.items && typeof order.items === "string" && order.items.trim() !== "") {
+        return order.items.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+
+    // 2) fallback: عمود orders.items الأصلي (JSONB) — قد يكون object/array من الداتابيز
+    const raw = order.rawItems;
+    if (!raw) return [];
+
+    try {
+        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (Array.isArray(parsed)) return parsed.filter(Boolean);
+        if (typeof parsed === "string") return [parsed];
+        return [];
+    } catch (e) {
+        return [];
+    }
+}
+
 /* ============================================================
    جلب جميع الطلبات
    ============================================================ */
@@ -16,6 +49,7 @@ router.get("/orders", async (req, res) => {
         let query = `
             SELECT 
                 o.*,
+                o.items as "rawItems",
                 COALESCE(
                     (SELECT string_agg(DISTINCT oi.medicine_name, ',') FROM order_items oi WHERE oi.order_id = o.id),
                     ''
@@ -28,7 +62,7 @@ router.get("/orders", async (req, res) => {
         `;
 
         if (status) {
-            query += ` WHERE o.status = $1`;
+            query += ` WHERE LOWER(o.status) = LOWER($1)`;
         }
 
         query += ` GROUP BY o.id ORDER BY o."createdAt" DESC`;
@@ -41,9 +75,9 @@ router.get("/orders", async (req, res) => {
             customerName: order.customerName || order.customer_name,
             phone: order.phone || "",
             address: order.address || "",
-            items: order.items ? order.items.split(",") : [],
+            items: resolveItems(order),
             prescriptionImage: order.prescriptionImage || order.prescription_image || "",
-            status: order.status || "pending",
+            status: normalizeStatus(order.status),
             createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
             pharmacyId: order.pharmacyId || order.pharmacy_id || null,
             pharmacyName: order.pharmacyName || order.pharmacy_name || null,
@@ -70,6 +104,7 @@ router.get("/orders/:id", async (req, res) => {
         const query = `
             SELECT 
                 o.*,
+                o.items as "rawItems",
                 COALESCE(
                     (SELECT string_agg(DISTINCT oi.medicine_name, ',' ORDER BY oi.id) FROM order_items oi WHERE oi.order_id = o.id),
                     ''
@@ -99,9 +134,9 @@ router.get("/orders/:id", async (req, res) => {
             customerName: order.customerName || order.customer_name,
             phone: order.phone || "",
             address: order.address || "",
-            items: order.items ? order.items.split(",") : [],
+            items: resolveItems(order),
             prescriptionImage: order.prescriptionImage || order.prescription_image || "",
-            status: order.status || "pending",
+            status: normalizeStatus(order.status),
             createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
             pharmacyId: order.pharmacyId || order.pharmacy_id || null,
             pharmacyName: order.pharmacyName || order.pharmacy_name || null,
@@ -134,21 +169,22 @@ router.post("/orders", async (req, res) => {
         const { customerName, phone, address, items, prescriptionImage, status } = req.body;
 
         const result = await db.run(
-            `INSERT INTO orders ("customerName", phone, address, "prescriptionImage", status, "createdAt")
-             VALUES ($1, $2, $3, $4, $5, NOW())
+            `INSERT INTO orders ("customerName", phone, address, items, "prescriptionImage", status, "createdAt")
+             VALUES ($1, $2, $3, $4, $5, $6, NOW())
              RETURNING id`,
             [
                 customerName,
                 phone,
                 address,
+                items && Array.isArray(items) ? JSON.stringify(items) : null,
                 prescriptionImage || "",
-                status || "pending",
+                normalizeStatus(status),
             ]
         );
 
         const orderId = result.id;
 
-        // إضافة الأدوية
+        // إضافة الأدوية في order_items كمان (يفضل مصدر رسمي موحّد)
         if (items && Array.isArray(items)) {
             for (const item of items) {
                 await db.run(
@@ -164,7 +200,7 @@ router.post("/orders", async (req, res) => {
             [orderId, "تم استلام الطلب من الشات بوت", "#0ea5e9"]
         );
 
-        res.json({ ok: true, order: { id: String(orderId), ...req.body } });
+        res.json({ ok: true, order: { id: String(orderId), ...req.body, status: normalizeStatus(status) } });
     } catch (err) {
         console.error("❌ خطأ في إنشاء الطلب:", err.message);
         res.status(500).json({ ok: false, error: "فشل في إنشاء الطلب" });
@@ -196,7 +232,7 @@ router.put("/orders/:id", async (req, res) => {
                  "rejectedBy" = $15, "updatedAt" = NOW()
              WHERE id = $16`,
             [
-                status || null,
+                status ? normalizeStatus(status) : null,
                 pharmacyId || null,
                 pharmacyName || null,
                 availableItems ? JSON.stringify(availableItems) : null,
@@ -256,7 +292,7 @@ router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
         const activeIds = activePharmacists.map((p) => p.id);
         const allRejected = activeIds.every((pid) => rejectedBy.includes(pid));
 
-        const newStatus = allRejected ? "rejected" : order.status;
+        const newStatus = allRejected ? "rejected" : normalizeStatus(order.status);
 
         await db.run(
             "UPDATE orders SET \"rejectedBy\" = $1::jsonb, status = $2 WHERE id = $3",
@@ -283,10 +319,10 @@ router.get("/orders-stats", async (req, res) => {
         const stats = await db.get(`
             SELECT 
                 COUNT(*)::int as total,
-                COUNT(*) FILTER (WHERE status = 'pending')::int as pending,
-                COUNT(*) FILTER (WHERE status = 'accepted')::int as accepted,
-                COUNT(*) FILTER (WHERE status = 'partial')::int as partial,
-                COUNT(*) FILTER (WHERE status = 'rejected')::int as rejected
+                COUNT(*) FILTER (WHERE LOWER(status) = 'pending')::int as pending,
+                COUNT(*) FILTER (WHERE LOWER(status) = 'accepted')::int as accepted,
+                COUNT(*) FILTER (WHERE LOWER(status) = 'partial')::int as partial,
+                COUNT(*) FILTER (WHERE LOWER(status) = 'rejected')::int as rejected
             FROM orders
         `);
 
