@@ -52,6 +52,8 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -62,6 +64,8 @@ body {
   line-height: 1.6;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  width: 100%;
 }
 
 ::selection {
@@ -340,6 +344,7 @@ img {
   font-size: 12.5px;
   font-weight: 700;
   line-height: 1.5;
+  white-space: nowrap;
 }
 
 .badge .dot {
@@ -394,6 +399,7 @@ img {
   background: conic-gradient(var(--ring-color, var(--green)) calc(var(--ring-value, 0) * 1%), rgba(226, 232, 240, 0.38) 0);
   box-shadow: inset 0 0 0 6px rgba(255, 255, 255, 0.95);
   transition: background .35s ease;
+  flex-shrink: 0;
 }
 
 .execution-ring::before {
@@ -429,18 +435,21 @@ img {
   box-shadow: var(--shadow);
   border: 1px solid rgba(227, 237, 247, .8);
   padding: 22px;
+  min-width: 0;
 }
 
 .card-title {
-  font-size: 16.5px;
+  font-size: clamp(14.5px, 1.5vw + 10px, 16.5px);
   font-weight: 800;
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .card-title svg {
   color: var(--sky);
+  flex-shrink: 0;
 }
 
 .card-head {
@@ -455,6 +464,7 @@ img {
 /* ============ النماذج ============ */
 .field {
   margin-bottom: 16px;
+  min-width: 0;
 }
 
 .field label {
@@ -480,6 +490,7 @@ img {
   font-size: 14.5px;
   transition: all .2s ease;
   outline: none;
+  max-width: 100%;
 }
 
 .input:focus,
@@ -511,6 +522,7 @@ img {
 
 .input-wrap {
   position: relative;
+  min-width: 0;
 }
 
 .input-wrap svg {
@@ -585,6 +597,7 @@ img {
 .med-check .med-name {
   font-weight: 600;
   font-size: 14px;
+  word-break: break-word;
 }
 
 .switch {
@@ -635,6 +648,7 @@ img {
   gap: 16px;
   padding: 16px 0;
   border-bottom: 1px dashed var(--line);
+  flex-wrap: wrap;
 }
 
 .setting-row:last-child {
@@ -658,6 +672,7 @@ img {
 .shell {
   display: flex;
   min-height: 100vh;
+  width: 100%;
 }
 
 .sidebar {
@@ -731,6 +746,7 @@ img {
   color: var(--ink-2);
   transition: all .2s ease;
   position: relative;
+  min-height: 44px;
 }
 
 .nav-link svg {
@@ -842,6 +858,7 @@ img {
   flex: 1;
   margin-right: var(--sidebar-w);
   min-width: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -861,18 +878,25 @@ img {
 }
 
 .topbar .page-title {
-  font-size: 18.5px;
+  font-size: clamp(15px, 1.2vw + 11px, 18.5px);
   font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topbar .page-crumb {
   font-size: 12px;
   color: var(--muted);
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topbar-spacer {
   flex: 1;
+  min-width: 4px;
 }
 
 .hamburger {
@@ -908,6 +932,7 @@ img {
   background: var(--green-100);
   padding: 5px 12px;
   border-radius: 99px;
+  flex-shrink: 0;
 }
 
 .live-dot::before {
@@ -917,6 +942,7 @@ img {
   border-radius: 50%;
   background: var(--green);
   animation: pulse 1.6s infinite;
+  flex-shrink: 0;
 }
 
 .live-dot.off {
@@ -934,11 +960,13 @@ img {
   max-width: 1460px;
   width: 100%;
   margin: 0 auto;
+  min-width: 0;
 }
 
 .grid {
   display: grid;
   gap: 20px;
+  min-width: 0;
 }
 
 .grid-2 {
@@ -973,6 +1001,7 @@ img {
   position: relative;
   overflow: hidden;
   transition: transform .25s ease, box-shadow .25s ease;
+  min-width: 0;
 }
 
 .stat-card:hover {
@@ -1015,7 +1044,7 @@ img {
 }
 
 .stat-value {
-  font-size: 26px;
+  font-size: clamp(20px, 1.6vw + 14px, 26px);
   font-weight: 900;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
@@ -1031,6 +1060,7 @@ img {
   overflow-x: auto;
   border-radius: var(--r-md);
   border: 1px solid var(--line);
+  -webkit-overflow-scrolling: touch;
 }
 
 .table {
@@ -1101,6 +1131,7 @@ img {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  white-space: nowrap;
 }
 
 .tab:hover {
@@ -1133,6 +1164,7 @@ img {
 .login-page {
   min-height: 100vh;
   display: flex;
+  flex-wrap: wrap;
 }
 
 .login-hero {
@@ -1210,7 +1242,7 @@ img {
 }
 
 .login-hero h1 {
-  font-size: 38px;
+  font-size: clamp(26px, 2.6vw + 14px, 38px);
   font-weight: 900;
   line-height: 1.35;
   margin-bottom: 14px;
@@ -1277,6 +1309,7 @@ img {
   justify-content: center;
   padding: 40px 28px;
   background: var(--bg);
+  min-width: 300px;
 }
 
 .login-box {
@@ -1290,6 +1323,7 @@ img {
   align-items: center;
   gap: 13px;
   margin-bottom: 30px;
+  flex-wrap: wrap;
 }
 
 .login-box h2 {
@@ -1336,6 +1370,7 @@ img {
   gap: 10px;
   padding: 3px 0;
   color: var(--ink-2);
+  flex-wrap: wrap;
 }
 
 .demo-box code {
@@ -1401,6 +1436,7 @@ img {
   position: relative;
   overflow: hidden;
   animation: fadeUp .4s ease both;
+  min-width: 0;
 }
 
 .order-card:hover {
@@ -1439,11 +1475,15 @@ img {
   align-items: center;
   gap: 11px;
   margin-bottom: 12px;
+  min-width: 0;
 }
 
 .order-card .oc-name {
   font-weight: 800;
   font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .order-card .oc-meta {
@@ -1460,6 +1500,7 @@ img {
   color: var(--muted);
   font-size: 13px;
   font-weight: 600;
+  min-width: 0;
 }
 
 .order-card .oc-meta svg {
@@ -1484,6 +1525,8 @@ img {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
+  word-break: break-word;
 }
 
 .med-chip.ok {
@@ -1510,6 +1553,7 @@ img {
   grid-template-columns: 1.7fr 1fr;
   gap: 20px;
   align-items: start;
+  min-width: 0;
 }
 
 .info-list {
@@ -1523,6 +1567,7 @@ img {
   gap: 13px;
   padding: 13px 0;
   border-bottom: 1px dashed var(--line);
+  min-width: 0;
 }
 
 .info-row:last-child {
@@ -1550,6 +1595,7 @@ img {
 .info-row .i-value {
   font-weight: 800;
   font-size: 14.5px;
+  word-break: break-word;
 }
 
 .rx-image {
@@ -1584,6 +1630,8 @@ img {
   border-radius: var(--r-md);
   font-size: 13px;
   font-weight: 700;
+  text-align: center;
+  padding: 0 14px;
 }
 
 .timeline {
@@ -1627,6 +1675,7 @@ img {
 .tl-item .tl-text {
   font-weight: 700;
   font-size: 13.5px;
+  word-break: break-word;
 }
 
 .tl-item .tl-time {
@@ -1643,6 +1692,7 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .price-box .p-label {
@@ -1697,6 +1747,7 @@ img {
   align-items: center;
   justify-content: space-between;
   padding: 22px 24px 0;
+  gap: 10px;
 }
 
 .modal-title {
@@ -1705,10 +1756,12 @@ img {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .modal-title svg {
   color: var(--sky);
+  flex-shrink: 0;
 }
 
 .modal-body {
@@ -1720,6 +1773,7 @@ img {
   gap: 10px;
   justify-content: flex-start;
   padding: 0 24px 22px;
+  flex-wrap: wrap;
 }
 
 .modal-close {
@@ -1732,6 +1786,7 @@ img {
   color: var(--muted);
   background: var(--bg-soft);
   transition: all .18s;
+  flex-shrink: 0;
 }
 
 .modal-close:hover {
@@ -1748,6 +1803,7 @@ img {
   flex-direction: column;
   gap: 11px;
   max-width: 370px;
+  width: calc(100% - 44px);
 }
 
 .toast {
@@ -1807,6 +1863,7 @@ img {
   color: var(--muted);
   font-size: 12.5px;
   margin-top: 1px;
+  word-break: break-word;
 }
 
 .toast .t-close {
@@ -1828,6 +1885,7 @@ img {
   top: calc(100% + 9px);
   left: 0;
   min-width: 240px;
+  max-width: calc(100vw - 24px);
   background: #fff;
   border-radius: 15px;
   box-shadow: var(--shadow-lg);
@@ -1851,6 +1909,7 @@ img {
   transition: all .15s;
   width: 100%;
   text-align: right;
+  min-height: 40px;
 }
 
 .dropdown-menu .dd-item:hover {
@@ -1860,6 +1919,7 @@ img {
 
 .dropdown-menu .dd-item svg {
   color: #8aa5bd;
+  flex-shrink: 0;
 }
 
 .dropdown-menu .dd-item.danger {
@@ -1882,7 +1942,8 @@ img {
 
 .notif-menu {
   min-width: 330px;
-  max-width: 360px;
+  width: min(330px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   padding: 0;
   overflow: hidden;
 }
@@ -1895,6 +1956,7 @@ img {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
 }
 
 .notif-item {
@@ -1930,6 +1992,7 @@ img {
 .notif-item .n-title {
   font-weight: 700;
   font-size: 13px;
+  word-break: break-word;
 }
 
 .notif-item .n-time {
@@ -1942,6 +2005,8 @@ img {
    ============================================================ */
 .chart-box {
   position: relative;
+  width: 100%;
+  overflow: hidden;
 }
 
 .chart-box svg {
@@ -1964,6 +2029,7 @@ img {
   box-shadow: var(--shadow-lg);
   transform: translate(-50%, calc(-100% - 10px));
   white-space: nowrap;
+  max-width: 90vw;
 }
 
 .chart-tooltip::after {
@@ -1995,6 +2061,7 @@ img {
   width: 11px;
   height: 11px;
   border-radius: 4px;
+  flex-shrink: 0;
 }
 
 .donut-wrap {
@@ -2058,6 +2125,7 @@ img {
   border-radius: 8px;
   overflow: hidden;
   position: relative;
+  min-width: 40px;
 }
 
 .hbar-row .hb-fill {
@@ -2091,13 +2159,14 @@ img {
 }
 
 .search-hero h3 {
-  font-size: 19px;
+  font-size: clamp(16px, 1.4vw + 12px, 19px);
   font-weight: 900;
   margin-bottom: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
+  flex-wrap: wrap;
 }
 
 .search-hero p {
@@ -2176,6 +2245,7 @@ img {
 .webhook-url-row {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .webhook-url-row .input {
@@ -2183,6 +2253,7 @@ img {
   text-align: left;
   font-family: "Segoe UI", monospace;
   font-size: 13.5px;
+  min-width: 200px;
 }
 
 .integration-note {
@@ -2214,6 +2285,7 @@ img {
   position: relative;
   overflow: hidden;
   margin-bottom: 20px;
+  flex-wrap: wrap;
 }
 
 .profile-head::after {
@@ -2228,7 +2300,7 @@ img {
 }
 
 .profile-head .ph-name {
-  font-size: 21px;
+  font-size: clamp(17px, 1.4vw + 12px, 21px);
   font-weight: 900;
 }
 
@@ -2245,6 +2317,8 @@ img {
 /* ============================================================
    Responsive
    ============================================================ */
+
+/* ---------- لابتوب صغير / تابلت أفقي ---------- */
 @media (max-width: 1200px) {
   .grid-6 {
     grid-template-columns: repeat(3, 1fr);
@@ -2259,6 +2333,7 @@ img {
   }
 }
 
+/* ---------- تابلت (Portrait/Landscape) ---------- */
 @media (max-width: 992px) {
   .sidebar {
     transform: translateX(100%);
@@ -2282,7 +2357,7 @@ img {
   }
 
   .grid-3 {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .col-span-2 {
@@ -2296,38 +2371,106 @@ img {
   .grid-6 {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .content {
+    padding: 22px;
+  }
 }
 
-@media (max-width: 640px) {
-  .content {
-    padding: 16px;
-  }
-
-  .topbar {
-    padding: 0 16px;
-  }
-
-  .grid-4,
-  .grid-6,
+/* ---------- تابلت صغير / هاتف كبير أفقي ---------- */
+@media (max-width: 768px) {
   .grid-2 {
     grid-template-columns: 1fr;
   }
 
+  .card {
+    padding: 18px;
+  }
+
+  .stat-card {
+    padding: 16px;
+  }
+
+  .topbar {
+    padding: 0 18px;
+    gap: 10px;
+  }
+
+  .content {
+    padding: 18px;
+  }
+
+  .profile-head {
+    padding: 20px;
+    gap: 14px;
+  }
+
+  .profile-head > div[style*="margin-right"] {
+    margin-right: 0 !important;
+    width: 100%;
+    justify-content: flex-start !important;
+  }
+}
+
+/* ---------- هواتف (موبايل) ---------- */
+@media (max-width: 640px) {
+  html, body {
+    font-size: 14px;
+  }
+
+  .content {
+    padding: 14px;
+  }
+
+  .topbar {
+    padding: 0 14px;
+    height: 64px;
+  }
+
+  .grid-4,
+  .grid-6,
+  .grid-2,
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .grid {
+    gap: 14px;
+  }
+
   .topbar .page-title {
-    font-size: 16px;
+    font-size: 15.5px;
   }
 
   .stat-value {
-    font-size: 22px;
+    font-size: 21px;
+  }
+
+  .card {
+    padding: 16px;
+    border-radius: var(--r-md);
   }
 
   .login-card {
-    padding: 22px;
+    padding: 20px;
+  }
+
+  .login-panel {
+    padding: 26px 16px;
+  }
+
+  .hbar-row {
+    gap: 8px;
   }
 
   .hbar-row .hb-name {
     width: 92px;
     font-size: 12.5px;
+  }
+
+  .hbar-row .hb-val {
+    width: 62px;
+    font-size: 12px;
   }
 
   .modal-foot {
@@ -2338,13 +2481,155 @@ img {
     width: 100%;
   }
 
+  .modal-head,
+  .modal-body,
+  .modal-foot {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
   .toasts {
-    left: 12px;
-    right: 12px;
+    left: 10px;
+    right: 10px;
+    bottom: 14px;
     max-width: none;
+    width: calc(100% - 20px);
   }
 
   .live-dot span.txt {
     display: none;
+  }
+
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .table thead th,
+  .table tbody td {
+    padding: 11px 12px;
+    font-size: 13px;
+  }
+
+  .search-hero {
+    padding: 18px;
+  }
+
+  .search-hero .input {
+    padding: 12px 42px 12px 16px;
+    font-size: 14px;
+  }
+
+  .stat-icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .avatar-lg {
+    width: 60px;
+    height: 60px;
+    font-size: 22px;
+    border-radius: 16px;
+  }
+
+  .execution-ring {
+    width: 58px;
+    height: 58px;
+  }
+}
+
+/* ---------- هواتف صغيرة جدًا ---------- */
+@media (max-width: 420px) {
+  :root {
+    --r-lg: 16px;
+  }
+
+  .content {
+    padding: 10px;
+  }
+
+  .topbar {
+    padding: 0 10px;
+    gap: 8px;
+  }
+
+  .card {
+    padding: 13px;
+  }
+
+  .stat-card {
+    padding: 13px;
+    gap: 11px;
+  }
+
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+  }
+
+  .stat-value {
+    font-size: 18px;
+  }
+
+  .btn {
+    padding: 9px 14px;
+    font-size: 13.5px;
+  }
+
+  .btn-lg {
+    padding: 11px 18px;
+    font-size: 14.5px;
+  }
+
+  .login-card {
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .demo-box {
+    padding: 11px 12px;
+    font-size: 12px;
+  }
+
+  .demo-box .d-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+
+  .demo-box .d-row:last-child {
+    border-bottom: none;
+  }
+
+  .order-card {
+    padding: 15px;
+  }
+
+  .modal {
+    border-radius: 18px;
+  }
+
+  .notif-menu,
+  .dropdown-menu {
+    min-width: 0;
+    width: calc(100vw - 20px);
+  }
+
+  .hero-badge,
+  .search-hero h3 {
+    font-size: 13px;
+  }
+
+  .table thead th,
+  .table tbody td {
+    padding: 9px 10px;
+    font-size: 12.5px;
+  }
+
+  .price-box .p-value {
+    font-size: 18px;
   }
 }
