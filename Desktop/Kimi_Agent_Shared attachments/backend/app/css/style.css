@@ -1,6 +1,7 @@
 /* ============================================================
    Pharmacy Bot Dashboard — Design System
    أبيض + سماوي مع لمسات زرقاء | Modern SaaS | RTL
+   نسخة محسّنة للريسبونسف الكامل على كل الأجهزة
    ============================================================ */
 
 :root {
@@ -62,6 +63,7 @@ body {
   line-height: 1.6;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden; /* يمنع أي سكرول أفقي غير مقصود على الموبايل */
 }
 
 ::selection {
@@ -213,6 +215,7 @@ img {
   white-space: nowrap;
   user-select: none;
   border: 1.5px solid transparent;
+  min-height: 40px; /* حد أدنى مريح للمس */
 }
 
 .btn svg {
@@ -291,12 +294,14 @@ img {
   padding: 7px 13px;
   font-size: 13px;
   border-radius: 9px;
+  min-height: 34px;
 }
 
 .btn-lg {
   padding: 13px 26px;
   font-size: 15.5px;
   border-radius: 12px;
+  min-height: 48px;
 }
 
 .btn-block {
@@ -394,6 +399,7 @@ img {
   background: conic-gradient(var(--ring-color, var(--green)) calc(var(--ring-value, 0) * 1%), rgba(226, 232, 240, 0.38) 0);
   box-shadow: inset 0 0 0 6px rgba(255, 255, 255, 0.95);
   transition: background .35s ease;
+  flex-shrink: 0;
 }
 
 .execution-ring::before {
@@ -429,6 +435,7 @@ img {
   box-shadow: var(--shadow);
   border: 1px solid rgba(227, 237, 247, .8);
   padding: 22px;
+  min-width: 0; /* يمنع تمدد البطاقات جوه الجريد */
 }
 
 .card-title {
@@ -441,6 +448,7 @@ img {
 
 .card-title svg {
   color: var(--sky);
+  flex-shrink: 0;
 }
 
 .card-head {
@@ -477,9 +485,10 @@ img {
   border-radius: var(--r-sm);
   border: 1.5px solid var(--line-2);
   background: #fbfdff;
-  font-size: 14.5px;
+  font-size: 14.5px; /* أكبر من 16px تمنع الزوم التلقائي فى iOS، فأبقيناها قريبة من كده */
   transition: all .2s ease;
   outline: none;
+  min-height: 44px; /* هدف لمس مريح */
 }
 
 .input:focus,
@@ -635,6 +644,7 @@ img {
   gap: 16px;
   padding: 16px 0;
   border-bottom: 1px dashed var(--line);
+  flex-wrap: wrap;
 }
 
 .setting-row:last-child {
@@ -658,6 +668,7 @@ img {
 .shell {
   display: flex;
   min-height: 100vh;
+  min-height: 100dvh; /* يراعي أشرطة المتصفح فى الموبايل */
 }
 
 .sidebar {
@@ -675,6 +686,7 @@ img {
   bottom: 0;
   z-index: 60;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   transition: transform .3s cubic-bezier(.22, .9, .3, 1);
 }
 
@@ -731,6 +743,7 @@ img {
   color: var(--ink-2);
   transition: all .2s ease;
   position: relative;
+  min-height: 44px;
 }
 
 .nav-link svg {
@@ -877,6 +890,8 @@ img {
 
 .hamburger {
   display: none;
+  min-width: 40px;
+  min-height: 40px;
 }
 
 .bell-btn .ping {
@@ -973,6 +988,7 @@ img {
   position: relative;
   overflow: hidden;
   transition: transform .25s ease, box-shadow .25s ease;
+  min-width: 0;
 }
 
 .stat-card:hover {
@@ -1031,6 +1047,7 @@ img {
   overflow-x: auto;
   border-radius: var(--r-md);
   border: 1px solid var(--line);
+  -webkit-overflow-scrolling: touch; /* سكرول سلس على iOS */
 }
 
 .table {
@@ -1101,6 +1118,7 @@ img {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  white-space: nowrap;
 }
 
 .tab:hover {
@@ -1132,6 +1150,7 @@ img {
    ============================================================ */
 .login-page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
 }
 
@@ -1210,7 +1229,7 @@ img {
 }
 
 .login-hero h1 {
-  font-size: 38px;
+  font-size: clamp(26px, 3vw, 38px);
   font-weight: 900;
   line-height: 1.35;
   margin-bottom: 14px;
@@ -1336,6 +1355,7 @@ img {
   gap: 10px;
   padding: 3px 0;
   color: var(--ink-2);
+  flex-wrap: wrap;
 }
 
 .demo-box code {
@@ -1401,6 +1421,7 @@ img {
   position: relative;
   overflow: hidden;
   animation: fadeUp .4s ease both;
+  min-width: 0;
 }
 
 .order-card:hover {
@@ -1426,6 +1447,7 @@ img {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 
 .order-card .oc-id {
@@ -1550,6 +1572,7 @@ img {
 .info-row .i-value {
   font-weight: 800;
   font-size: 14.5px;
+  word-break: break-word;
 }
 
 .rx-image {
@@ -1643,6 +1666,7 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .price-box .p-label {
@@ -1683,7 +1707,9 @@ img {
   width: 100%;
   max-width: 520px;
   max-height: 90vh;
+  max-height: 90dvh;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   box-shadow: var(--shadow-lg);
   animation: popIn .3s cubic-bezier(.22, .9, .3, 1);
 }
@@ -1697,6 +1723,7 @@ img {
   align-items: center;
   justify-content: space-between;
   padding: 22px 24px 0;
+  gap: 10px;
 }
 
 .modal-title {
@@ -1709,6 +1736,7 @@ img {
 
 .modal-title svg {
   color: var(--sky);
+  flex-shrink: 0;
 }
 
 .modal-body {
@@ -1732,6 +1760,7 @@ img {
   color: var(--muted);
   background: var(--bg-soft);
   transition: all .18s;
+  flex-shrink: 0;
 }
 
 .modal-close:hover {
@@ -1836,6 +1865,7 @@ img {
   z-index: 90;
   animation: popIn .22s ease;
   transform-origin: top left;
+  max-width: calc(100vw - 24px); /* ما تخرجش برة الشاشة على الموبايل */
 }
 
 .dropdown-menu .dd-item {
@@ -1942,6 +1972,8 @@ img {
    ============================================================ */
 .chart-box {
   position: relative;
+  width: 100%;
+  min-width: 0;
 }
 
 .chart-box svg {
@@ -2058,6 +2090,7 @@ img {
   border-radius: 8px;
   overflow: hidden;
   position: relative;
+  min-width: 40px;
 }
 
 .hbar-row .hb-fill {
@@ -2098,6 +2131,7 @@ img {
   align-items: center;
   justify-content: center;
   gap: 9px;
+  flex-wrap: wrap;
 }
 
 .search-hero p {
@@ -2161,6 +2195,7 @@ img {
   direction: ltr;
   text-align: left;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   line-height: 1.8;
   border: 1px solid #1e3a5c;
 }
@@ -2176,6 +2211,7 @@ img {
 .webhook-url-row {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .webhook-url-row .input {
@@ -2183,6 +2219,7 @@ img {
   text-align: left;
   font-family: "Segoe UI", monospace;
   font-size: 13.5px;
+  min-width: 0;
 }
 
 .integration-note {
@@ -2214,6 +2251,7 @@ img {
   position: relative;
   overflow: hidden;
   margin-bottom: 20px;
+  flex-wrap: wrap;
 }
 
 .profile-head::after {
@@ -2243,8 +2281,17 @@ img {
 }
 
 /* ============================================================
-   Responsive
+   Responsive — نسخة موسّعة تغطي كل مقاسات الأجهزة
    ============================================================ */
+
+/* شاشات كبيرة جدًا (٤K / شاشات مكاتب عريضة) */
+@media (min-width: 1600px) {
+  .content {
+    max-width: 1600px;
+  }
+}
+
+/* لابتوبات صغيرة وتابلت بالعرض (Landscape) */
 @media (max-width: 1200px) {
   .grid-6 {
     grid-template-columns: repeat(3, 1fr);
@@ -2259,6 +2306,7 @@ img {
   }
 }
 
+/* تابلت (iPad وما شابه) */
 @media (max-width: 992px) {
   .sidebar {
     transform: translateX(100%);
@@ -2282,7 +2330,7 @@ img {
   }
 
   .grid-3 {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .col-span-2 {
@@ -2296,8 +2344,50 @@ img {
   .grid-6 {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .content {
+    padding: 22px;
+  }
 }
 
+/* تابلت بورتريه / موبايل كبير */
+@media (max-width: 768px) {
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .card-head {
+    align-items: flex-start;
+  }
+
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .donut-wrap {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .profile-head {
+    text-align: center;
+    justify-content: center;
+  }
+}
+
+/* موبايل */
 @media (max-width: 640px) {
   .content {
     padding: 16px;
@@ -2305,6 +2395,7 @@ img {
 
   .topbar {
     padding: 0 16px;
+    gap: 10px;
   }
 
   .grid-4,
@@ -2313,12 +2404,27 @@ img {
     grid-template-columns: 1fr;
   }
 
+  .grid {
+    gap: 14px;
+  }
+
   .topbar .page-title {
     font-size: 16px;
   }
 
   .stat-value {
     font-size: 22px;
+  }
+
+  .stat-card {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .stat-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 13px;
   }
 
   .login-card {
@@ -2342,9 +2448,178 @@ img {
     left: 12px;
     right: 12px;
     max-width: none;
+    bottom: 12px;
   }
 
   .live-dot span.txt {
     display: none;
+  }
+
+  .avatar-lg {
+    width: 60px;
+    height: 60px;
+    border-radius: 16px;
+    font-size: 22px;
+  }
+
+  .execution-ring {
+    width: 56px;
+    height: 56px;
+  }
+
+  .execution-ring span {
+    font-size: 12px;
+  }
+
+  .price-box {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .price-box .p-value {
+    font-size: 19px;
+  }
+
+  .modal-head,
+  .modal-body {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .modal-foot {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .search-hero {
+    padding: 20px 16px;
+  }
+
+  .rx-image img {
+    height: 170px;
+  }
+
+  .notif-menu {
+    min-width: 0;
+    width: calc(100vw - 24px);
+    max-width: 340px;
+  }
+}
+
+/* موبايل صغير جدًا (٣٦٠–٣٨٠ بكسل) */
+@media (max-width: 380px) {
+  .sidebar {
+    width: 86vw;
+  }
+
+  .topbar {
+    padding: 0 12px;
+  }
+
+  .topbar .page-title {
+    font-size: 14.5px;
+  }
+
+  .stat-value {
+    font-size: 19px;
+  }
+
+  .hbar-row .hb-name {
+    width: 70px;
+    font-size: 11.5px;
+  }
+
+  .hbar-row .hb-val {
+    width: 58px;
+    font-size: 12px;
+  }
+
+  .login-card {
+    padding: 18px;
+  }
+
+  .demo-box .d-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .avatar {
+    width: 38px;
+    height: 38px;
+    font-size: 14px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+}
+
+/* دعم حواف الشاشات المنحنية / النوتش (iPhone وغيره) */
+@supports (padding: max(0px)) {
+  .topbar {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+
+  .content {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+
+  .toasts {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .sidebar {
+    padding-top: max(22px, env(safe-area-inset-top));
+    padding-bottom: max(22px, env(safe-area-inset-bottom));
+  }
+}
+
+/* أهداف لمس أكبر على الأجهزة اللي بتشتغل باللمس */
+@media (pointer: coarse) {
+  .icon-btn,
+  .modal-close,
+  .hamburger {
+    min-width: 42px;
+    min-height: 42px;
+  }
+
+  .nav-link {
+    padding: 13px 12px;
+  }
+
+  .tab {
+    padding: 10px 16px;
+  }
+}
+
+/* تقليل الحركة لمن يفضّل ذلك (إتاحة/Accessibility) */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* عرض أفقي على الموبايل (Landscape) - يقلل ارتفاع الأشياء الثابتة */
+@media (max-height: 480px) and (orientation: landscape) {
+  .topbar {
+    height: 56px;
+  }
+
+  .login-hero {
+    padding: 30px 40px;
+  }
+
+  .login-panel {
+    padding: 20px;
   }
 }
