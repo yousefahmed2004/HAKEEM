@@ -1,166 +1,102 @@
 /* ============================================================
-   api.js — طبقة التكامل مع الـ Backend
+   api.js — ملف الاتصال بالخادم والـ API
    ============================================================ */
-window.App = window.App || {};
 
-(function () {
-    const API_BASE = "http://localhost:5000/api";
+// استخدام مسار نسبي للـ API ليعمل بكفاءة على أي دومين (مثل hakeem.sbs) تلقائياً
+const API_BASE_URL = "/api";
 
-    /* ============================================================
-       دوال مساعدة للـ HTTP
-       ============================================================ */
-    const http = {
-        async get(endpoint) {
-            const response = await fetch(`${API_BASE}${endpoint}`);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.json();
-        },
+/**
+ * دالة مساعدة لإرسال الطلبات للـ Backend
+ */
+async function apiRequest(endpoint, options = {}) {
+    try {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+            headers: {
+                "Content-Type": "application/json",
+                ...options.headers
+            },
+            ...options
+        });
 
-        async post(endpoint, data) {
-            const response = await fetch(`${API_BASE}${endpoint}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(data),
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.json();
-        },
+        const data = await response.json();
 
-        async put(endpoint, data) {
-            const response = await fetch(`${API_BASE}${endpoint}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(data),
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.json();
-        },
+        if (!response.ok) {
+            throw new Error(data.error || "حدث خطأ في الاتصال بالخادم");
+        }
 
-        async patch(endpoint, data) {
-            const response = await fetch(`${API_BASE}${endpoint}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(data),
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.json();
-        },
-    };
+        return data;
+    } catch (error) {
+        console.error(`❌ خطأ في الطلب (${endpoint}):`, error.message);
+        throw error;
+    }
+}
 
-    /* ============================================================
-       الواجهة العامة
-       ============================================================ */
-    App.api = {
-        /* المصادقة */
-        async login(username, password) {
-            try {
-                return await http.post("/auth/login", { username, password });
-            } catch (err) {
-                console.error("❌ خطأ في تسجيل الدخول:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
+/* ============================================================
+   خدمات المصادقة (Auth Services)
+   ============================================================ */
 
-        async getUser(userId) {
-            try {
-                return await http.get(`/auth/user/${userId}`);
-            } catch (err) {
-                console.error("❌ خطأ في جلب بيانات المستخدم:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
+async function loginUser(username, password) {
+    try {
+        const result = await apiRequest("/auth/login", {
+            method: "POST",
+            body: JSON.stringify({ username, password })
+        });
+        return result;
+    } catch (error) {
+        console.error("❌ خطأ في تسجيل الدخول:", error);
+        throw error;
+    }
+}
 
-        async updateProfile(userId, updates) {
-            try {
-                return await http.put(`/auth/user/${userId}`, updates);
-            } catch (err) {
-                console.error("❌ خطأ في تحديث الملف الشخصي:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
+async function registerUser(userData) {
+    try {
+        const result = await apiRequest("/auth/register", {
+            method: "POST",
+            body: JSON.stringify(userData)
+        });
+        return result;
+    } catch (error) {
+        console.error("❌ خطأ في إنشاء الحساب:", error);
+        throw error;
+    }
+}
 
-        async getPharmacists() {
-            try {
-                return await http.get("/auth/pharmacists");
-            } catch (err) {
-                console.error("❌ خطأ في جلب قائمة الصيادلة:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
+/* ============================================================
+   خدمات الطلبات والبيانات (Orders Services)
+   ============================================================ */
 
-        async addPharmacist(data) {
-            try {
-                return await http.post("/auth/pharmacist", data);
-            } catch (err) {
-                console.error("❌ خطأ في إضافة صيدلي:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
+async function getOrders() {
+    try {
+        const result = await apiRequest("/orders");
+        return result;
+    } catch (error) {
+        console.error("❌ خطأ في جلب الطلبات:", error);
+        return { success: false, data: [] };
+    }
+}
 
-        async updateUserStatus(userId, status) {
-            try {
-                return await http.patch(`/auth/user/${userId}/status`, { status });
-            } catch (err) {
-                console.error("❌ خطأ في تحديث الحالة:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
+async function createOrder(orderData) {
+    try {
+        const result = await apiRequest("/orders", {
+            method: "POST",
+            body: JSON.stringify(orderData)
+        });
+        return result;
+    } catch (error) {
+        console.error("❌ خطأ في إنشاء الطلب:", error);
+        throw error;
+    }
+}
 
-        /* الطلبات */
-        async getOrders(filters = {}) {
-            try {
-                const query = new URLSearchParams(filters).toString();
-                const endpoint = `/orders${query ? "?" + query : ""}`;
-                return await http.get(endpoint);
-            } catch (err) {
-                console.error("❌ خطأ في جلب الطلبات:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
-
-        async getOrder(orderId) {
-            try {
-                return await http.get(`/orders/${orderId}`);
-            } catch (err) {
-                console.error("❌ خطأ في جلب الطلب:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
-
-        async createOrder(orderData) {
-            try {
-                return await http.post("/orders", orderData);
-            } catch (err) {
-                console.error("❌ خطأ في إنشاء الطلب:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
-
-        async updateOrder(orderId, updates) {
-            try {
-                return await http.put(`/orders/${orderId}`, updates);
-            } catch (err) {
-                console.error("❌ خطأ في تحديث الطلب:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
-
-        async rejectOrder(orderId, pharmacyId) {
-            try {
-                return await http.patch(`/orders/${orderId}/reject/${pharmacyId}`, {});
-            } catch (err) {
-                console.error("❌ خطأ في رفض الطلب:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
-
-        async getOrdersStats() {
-            try {
-                return await http.get("/orders-stats");
-            } catch (err) {
-                console.error("❌ خطأ في جلب الإحصائيات:", err.message);
-                return { ok: false, error: "فشل الاتصال بالخادم" };
-            }
-        },
-    };
-})();
+async function updateOrderStatus(orderId, status) {
+    try {
+        const result = await apiRequest(`/orders/${orderId}/status`, {
+            method: "PATCH",
+            body: JSON.stringify({ status })
+        });
+        return result;
+    } catch (error) {
+        console.error("❌ خطأ في تحديث حالة الطلب:", error);
+        throw error;
+    }
+}
