@@ -66,6 +66,58 @@ function resolveItems(order) {
     return [];
 }
 
+/* دالة مساعدة ذكية لاستخراج الصورة بجميع الطرق المحتملة */
+function extractPrescriptionImage(order) {
+    let extractedImage = "";
+    
+    // 1. البحث في الأعمدة المباشرة المحتملة
+    const possibleDirect = [
+        order.prescriptionImage,
+        order.prescription_image,
+        order.prescription,
+        order.image
+    ];
+    
+    for (const val of possibleDirect) {
+        if (val && typeof val === "string" && val.trim() !== "") {
+            extractedImage = val.trim();
+            break;
+        }
+    }
+
+    // 2. لو مش موجودة مباشرة، نحاول ندور عليها جوا الحقول الخام (rawItems / items)
+    if (!extractedImage) {
+        try {
+            const raw = order.rawItems || order.items;
+            if (raw) {
+                const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+                
+                if (Array.isArray(parsed)) {
+                    for (const item of parsed) {
+                        if (item && typeof item === "object") {
+                            const found = item.image_url || item.prescriptionImage || item.image || item.url;
+                            if (found) {
+                                extractedImage = found;
+                                break;
+                            }
+                        }
+                    }
+                } else if (parsed && typeof parsed === "object") {
+                    extractedImage = parsed.image_url || parsed.prescriptionImage || parsed.image || parsed.url || "";
+                }
+            }
+        } catch (e) {
+            // لو الـ rawItems عبارة عن نص Base64 مباشر أو رابط مباشر مش JSON
+            const rawStr = String(order.rawItems || order.items || "");
+            if (rawStr.startsWith("data:image/") || rawStr.startsWith("http")) {
+                extractedImage = rawStr;
+            }
+        }
+    }
+
+    return extractedImage;
+}
+
 /* ============================================================
     جلب جميع الطلبات
     ============================================================ */
@@ -95,20 +147,9 @@ router.get("/orders", async (req, res) => {
 
         const rows = status ? await db.all(query, [status]) : await db.all(query);
 
-        // تحويل البيانات إلى الشكل المطلوب مع تحسين استخراج الصورة
+        // تحويل البيانات إلى الشكل المطلوب مع استخدام دالة استخراج الصورة الذكية
         const formattedOrders = rows.map((order) => {
-            let extractedImage = order.prescriptionImage || order.prescription_image || order.prescription || order.image || "";
-            if (!extractedImage) {
-                try {
-                    const raw = order.rawItems || order.items;
-                    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-                    if (Array.isArray(parsed) && parsed[0]) {
-                        extractedImage = parsed[0].image_url || parsed[0].prescriptionImage || parsed[0].image || "";
-                    } else if (parsed && typeof parsed === "object") {
-                        extractedImage = parsed.image_url || parsed.prescriptionImage || parsed.image || "";
-                    }
-                } catch (e) {}
-            }
+            const extractedImage = extractPrescriptionImage(order);
 
             return {
                 id: String(order.id),
@@ -170,18 +211,7 @@ router.get("/orders/:id", async (req, res) => {
             [id]
         );
 
-        let extractedImage = order.prescriptionImage || order.prescription_image || order.prescription || order.image || "";
-        if (!extractedImage) {
-            try {
-                const raw = order.rawItems || order.items;
-                const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-                if (Array.isArray(parsed) && parsed[0]) {
-                    extractedImage = parsed[0].image_url || parsed[0].prescriptionImage || parsed[0].image || "";
-                } else if (parsed && typeof parsed === "object") {
-                    extractedImage = parsed.image_url || parsed.prescriptionImage || parsed.image || "";
-                }
-            } catch (e) {}
-        }
+        const extractedImage = extractPrescriptionImage(order);
 
         const formattedOrder = {
             id: String(order.id),
@@ -278,7 +308,7 @@ router.put("/orders/:id", async (req, res) => {
             `UPDATE orders 
              SET status = $1, "pharmacyId" = $2, "pharmacyName" = $3, 
                  "availableItems" = $4, "unavailableItems" = $5, 
-                 price = $6, notes = $7, "workflowStatus" = $8,
+                 "price" = $6, notes = $7, "workflowStatus" = $8,
                  "executionPending" = $9, "executionDeadline" = $10,
                  "executionCompleted" = $11, "executionFailed" = $12,
                  "executedAt" = $13, "deliveredAt" = $14,
