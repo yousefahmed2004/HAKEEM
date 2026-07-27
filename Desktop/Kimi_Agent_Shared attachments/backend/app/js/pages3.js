@@ -8,7 +8,6 @@ App.pages = App.pages || {};
   const { icon, esc, avatar, fmtDateTime, toast, confirmModal } = App.ui;
   const S = () => App.store;
 
-
   function loginHTML() {
     return `
     <div class="login-page">
@@ -193,51 +192,9 @@ App.pages = App.pages || {};
      ============================================================ */
   function settingsHTML() {
     const st = S().getSettings();
-    const payloadExample = `{
-  <span class="w-key">"orderId"</span>: <span class="w-str">"10025"</span>,
-  <span class="w-key">"customerName"</span>: <span class="w-str">"Ahmed"</span>,
-  <span class="w-key">"phone"</span>: <span class="w-str">"01000000000"</span>,
-  <span class="w-key">"address"</span>: <span class="w-str">"Cairo"</span>,
-  <span class="w-key">"items"</span>: [<span class="w-str">"Panadol"</span>, <span class="w-str">"Augmentin"</span>, <span class="w-str">"Cataflam"</span>],
-  <span class="w-key">"prescriptionImage"</span>: <span class="w-str">""</span>,
-  <span class="w-key">"status"</span>: <span class="w-str">"Pending"</span>,
-  <span class="w-key">"createdAt"</span>: <span class="w-str">"2026-07-16 14:30"</span>
-}`;
     return `
       <div class="page-anim">
-        <div class="grid" style="grid-template-columns:1.5fr 1fr;align-items:start" id="settings-grid">
-
-          <div style="display:flex;flex-direction:column;gap:20px">
-            <div class="card">
-              <div class="card-head"><div class="card-title">${icon("link", 20)} ربط n8n Webhook</div>
-                <span class="badge badge-pending"><span class="dot"></span>جاهز — غير مفعّل</span>
-              </div>
-              <div class="integration-note" style="margin-bottom:18px">
-                ${icon("info", 18)}
-                <span>الكود جاهز بالكامل لاستقبال وإرسال البيانات (ملف <b>js/webhook.js</b>) — ضع رابط الـ Webhook هنا ثم فعّل الـ <b>fetch</b> داخل الملف ليبدأ التكامل الفعلي.</span>
-              </div>
-              <div class="field">
-                <label>Webhook URL (n8n)</label>
-                <div class="webhook-url-row">
-                  <input class="input" id="set-webhook" value="${esc(st.webhookUrl)}" placeholder="https://YOUR-N8N-WEBHOOK" />
-                  <button class="btn btn-soft" id="copy-webhook" title="نسخ الرابط">${icon("copy", 16)}</button>
-                </div>
-              </div>
-              <div class="field">
-                <label>API Key</label>
-                <div class="input-wrap">${icon("key", 17)}
-                  <input class="input" id="set-apikey" dir="ltr" style="text-align:left;font-family:monospace" value="${esc(st.apiKey)}" placeholder="••••••••••••••••" />
-                </div>
-              </div>
-              <button class="btn btn-primary" id="save-integration">${icon("check", 16)} حفظ إعدادات الربط</button>
-            </div>
-
-            <div class="card">
-              <div class="card-head"><div class="card-title">${icon("fileText", 20)} شكل البيانات المتوقع من الشات بوت</div></div>
-              <div class="webhook-box">${payloadExample}</div>
-              <p class="small muted" style="margin-top:12px">يستقبل النظام الطلبات بهذا الشكل عبر الدالة <code class="mono" style="background:var(--bg-soft);padding:2px 8px;border-radius:6px">App.webhook.receiveOrder(payload)</code> ويرسل تحديثات الحالة (مقبول / جزئي / مرفوض) تلقائيًا إلى الـ Webhook.</p>
-            </div>
-          </div>
+        <div class="grid" style="grid-template-columns:1fr;align-items:start" id="settings-grid">
 
           <div style="display:flex;flex-direction:column;gap:20px">
             <div class="card">
@@ -258,7 +215,7 @@ App.pages = App.pages || {};
 
             <div class="card">
               <div class="card-head"><div class="card-title">${icon("zap", 20)} أدوات تجريبية</div></div>
-              <p class="small muted" style="margin-bottom:14px">جرّب النظام كأن الشات بوت أرسل طلبًا حقيقيًا عبر الـ Webhook.</p>
+              <p class="small muted" style="margin-bottom:14px">جرّب النظام كأن الشات بوت أرسل طلبًا حقيقيًا.</p>
               <button class="btn btn-primary btn-block" id="simulate-order" style="margin-bottom:10px">${icon("send", 16)} محاكاة طلب جديد الآن</button>
               <button class="btn btn-warning-soft btn-block" id="reset-demo">${icon("refresh", 16)} إعادة تعيين البيانات التجريبية</button>
             </div>
@@ -269,23 +226,11 @@ App.pages = App.pages || {};
 
   App.pages.settings = {
     title: "الإعدادات",
-    crumb: "الربط مع n8n والتنبيهات",
+    crumb: "إعدادات التنبيهات",
     render: settingsHTML,
     mount() {
       const grid = document.getElementById("settings-grid");
       if (window.innerWidth < 1100 && grid) grid.style.gridTemplateColumns = "1fr";
-
-      document.getElementById("save-integration").onclick = () => {
-        S().updateSettings({
-          webhookUrl: document.getElementById("set-webhook").value.trim(),
-          apiKey: document.getElementById("set-apikey").value.trim(),
-        });
-        toast("تم حفظ إعدادات الربط", "فعّل الـ fetch في js/webhook.js لبدء التكامل الفعلي", "success");
-      };
-      document.getElementById("copy-webhook").onclick = () => {
-        navigator.clipboard && navigator.clipboard.writeText(document.getElementById("set-webhook").value);
-        toast("تم نسخ الرابط", "", "info");
-      };
 
       const bindSwitch = (id, key, after) => {
         document.getElementById(id).addEventListener("change", (e) => {
