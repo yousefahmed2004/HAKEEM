@@ -435,12 +435,14 @@ App.pages = App.pages || {};
         </div>`
       : `<div class="med-chips">${o.items.map((m) => `<span class="med-chip">${icon("pill", 13)} ${esc(m)}</span>`).join("")}</div>`;
 
-    // التحقق الآمن لعرض صورة الروشتة لمنع أخطاء 404 أو undefined
-    const hasImage = o.prescriptionImage && typeof o.prescriptionImage === "string" && o.prescriptionImage.trim() !== "" && o.prescriptionImage !== "undefined";
-    const rxImageHTML = hasImage
-      ? `<div class="rx-image" id="rx-view"><img src="${esc(o.prescriptionImage)}" alt="روشتة العميل" /></div>
+    // التحقق الآمن والسليم لعرض صورة الروشتة أو رسالة بديلة في حال عدم توفر رابط صحيح
+    const rxImg = o.prescriptionImage;
+    const hasValidImage = rxImg && typeof rxImg === "string" && rxImg.trim() !== "" && rxImg !== "undefined" && (rxImg.startsWith("http") || rxImg.startsWith("data:image") || rxImg.startsWith("/"));
+    
+    const rxImageHTML = hasValidImage
+      ? `<div class="rx-image" id="rx-view"><img src="${esc(rxImg)}" alt="روشتة العميل" /></div>
          <div class="small muted" style="margin-top:9px;text-align:center">اضغط على الصورة للتكبير</div>`
-      : `<div class="rx-empty">${icon("image", 30, 1.5)} لم يرفق العميل صورة روشتة<span class="small">تم الطلب بكتابة أسماء الأدوية</span></div>`;
+      : `<div class="rx-empty">${icon("image", 30, 1.5)} لم يتم إرفاق صورة روشتة صحيحة<span class="small">الطلب تم كتابة أصنافه نصياً فقط</span></div>`;
 
     return `
       <div class="page-anim">
@@ -551,7 +553,6 @@ App.pages = App.pages || {};
     mount(user, param) {
       const o = S().getOrder(param);
       if (!o) return;
-      // ربط الأحداث وإجراءات التفاصيل
     }
   };
 })();
