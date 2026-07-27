@@ -216,7 +216,7 @@ window.App = window.App || {};
     view.innerHTML = def.render(user, param);
     def.mount && def.mount(user, param);
 
-    /* تمييز الرابط النشط */
+    /* تمييز الرابط النشط مع فحص آمن لخصائص العناصر */
     document.querySelectorAll("[data-nav]").forEach((a) => {
       const h = a.dataset.nav;
       const active = a.dataset.end === "1"
@@ -226,7 +226,12 @@ window.App = window.App || {};
     });
 
     updateBadges();
-    document.getElementById("view").scrollTo && window.scrollTo({ top: 0 });
+    const viewEl = document.getElementById("view");
+    if (viewEl && typeof viewEl.scrollTo === "function") {
+      viewEl.scrollTo({ top: 0 });
+    } else {
+      window.scrollTo({ top: 0 });
+    }
   }
 
   function updateBadges() {
@@ -235,9 +240,10 @@ window.App = window.App || {};
     const count = user.role === "admin" ? S().pendingCount() : S().poolFor(user.id).length;
     const nav = document.getElementById("nav-orders-count");
     const ping = document.getElementById("bell-ping");
-    nav.textContent = count; ping.textContent = count;
-    nav.classList.toggle("hidden", count === 0);
-    ping.classList.toggle("hidden", count === 0);
+    if (nav) nav.textContent = count; 
+    if (ping) ping.textContent = count;
+    if (nav) nav.classList.toggle("hidden", count === 0);
+    if (ping) ping.classList.toggle("hidden", count === 0);
   }
 
   App.router = {
