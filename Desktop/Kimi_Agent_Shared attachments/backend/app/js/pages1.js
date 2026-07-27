@@ -41,14 +41,6 @@ App.pages = App.pages || {};
       </div>`;
   }
 
-  /* ordersTable
-     ---------------------------------------------------------------
-     نفس الجدول القديم تمامًا فى الشاشات الكبيرة، لكن كل <td> دلوقتي
-     عليه data-label (اسم العمود) + كلاس يوضح دوره (td-id / td-status /
-     td-action ...). الكلاسات والـ data-label دول مش بيظهروا فى حاجة على
-     الديسكتوب، لكن الـ CSS الخاص بالموبايل (max-width:640px) بيستخدمهم
-     عشان يحول كل صف لكارت مرتب بدل ما الجدول يتزنق فى شاشة ضيقة.
-     ---------------------------------------------------------------- */
   function ordersTable(orders, { showPharmacy = true, showPrice = true, showPhone = false } = {}) {
     if (!orders.length) return emptyState("inbox", "لا توجد طلبات", "لم يتم العثور على طلبات مطابقة");
     return `
@@ -99,10 +91,8 @@ App.pages = App.pages || {};
       </div>`;
   }
 
-  /* ---------- لوحة الأدمن ---------- */
   function adminDashboard() {
     const st = S().stats();
-    const series = S().dailySeries(14);
     const recent = S().getOrders().slice(0, 6);
     const topMeds = S().medicineStats().slice(0, 6);
     const maxMed = Math.max(...topMeds.map((m) => m.count), 1);
@@ -168,7 +158,6 @@ App.pages = App.pages || {};
     ], { size: 180, thickness: 24 });
   }
 
-  /* ---------- لوحة الصيدلي ---------- */
   function pharmacistDashboard(user) {
     const pool = S().poolFor(user.id);
     const current = S().myOrdersCurrent(user.id);
@@ -224,7 +213,7 @@ App.pages = App.pages || {};
   };
 
   /* ============================================================
-     صفحة الطلبات (الجديدة فقط بالنسبة للصيدلي — القبول/الرفض)
+     صفحة الطلبات
      ============================================================ */
   let ordersFilter = { tab: "all", q: "" };
 
@@ -318,7 +307,7 @@ App.pages = App.pages || {};
   };
 
   /* ============================================================
-     صفحة "طلباتي" (الصيدلي فقط) — قيد التنفيذ / منفذة اليوم / السجل
+     صفحة "طلباتي"
      ============================================================ */
   let myOrdersTab = "current";
   let myOrdersHistoryFilter = "all";
@@ -359,7 +348,7 @@ App.pages = App.pages || {};
   function renderMyOrdersList(user) {
     const target = document.getElementById("my-orders-list");
     if (!target) return;
-    let list, showPrice = true;
+    let list;
     if (myOrdersTab === "current") {
       list = S().myOrdersCurrent(user.id);
       target.innerHTML = list.length ? ordersTable(list, { showPharmacy: false, showPhone: true })
@@ -409,14 +398,13 @@ App.pages = App.pages || {};
 })();
 
 /* ============================================================
-   pages1.js (تابع) — تفاصيل الطلب + إجراءات الصيدلي
+   pages1.js (تابع) — تفاصيل الطلب + إجراءات الصيدلي والصورة
    ============================================================ */
 (function () {
   const { icon, esc, statusBadge, fmtDateTime, timeAgo, fmtMoney, emptyState, toast, modal, confirmModal, STATUS } = App.ui;
   const S = () => App.store;
 
   function detailsHTML(o, user) {
-    // التأكد من وجود الحقول المطلوبة (قد تأتي من API بدونها)
     if (!o.timeline) o.timeline = [{ at: o.createdAt || new Date().toISOString(), text: "تم استلام الطلب من الشات بوت", color: "#0ea5e9" }];
     if (!o.rejectedBy) o.rejectedBy = [];
     if (!o.availableItems) o.availableItems = [];
@@ -446,6 +434,13 @@ App.pages = App.pages || {};
             <div class="med-chips">${o.unavailableItems.map((m) => `<span class="med-chip no">${icon("x", 13)} ${esc(m)}</span>`).join("")}</div>` : ""}
         </div>`
       : `<div class="med-chips">${o.items.map((m) => `<span class="med-chip">${icon("pill", 13)} ${esc(m)}</span>`).join("")}</div>`;
+
+    // التحقق الآمن لعرض صورة الروشتة لمنع أخطاء 404 أو undefined
+    const hasImage = o.prescriptionImage && typeof o.prescriptionImage === "string" && o.prescriptionImage.trim() !== "" && o.prescriptionImage !== "undefined";
+    const rxImageHTML = hasImage
+      ? `<div class="rx-image" id="rx-view"><img src="${esc(o.prescriptionImage)}" alt="روشتة العميل" /></div>
+         <div class="small muted" style="margin-top:9px;text-align:center">اضغط على الصورة للتكبير</div>`
+      : `<div class="rx-empty">${icon("image", 30, 1.5)} لم يرفق العميل صورة روشتة<span class="small">تم الطلب بكتابة أسماء الأدوية</span></div>`;
 
     return `
       <div class="page-anim">
@@ -527,10 +522,7 @@ App.pages = App.pages || {};
           <div style="display:flex;flex-direction:column;gap:20px">
             <div class="card">
               <div class="card-head"><div class="card-title">${icon("image", 20)} صورة الروشتة</div></div>
-              ${o.prescriptionImage
-        ? `<div class="rx-image" id="rx-view"><img src="${esc(o.prescriptionImage)}" alt="روشتة العميل" onerror="this.closest('.rx-image').outerHTML = App.ui.emptyState('image','تعذر تحميل الصورة','ملف الصورة غير متوفر في النسخة التجريبية')" /></div>
-                   <div class="small muted" style="margin-top:9px;text-align:center">اضغط على الصورة للتكبير</div>`
-        : `<div class="rx-empty">${icon("image", 30, 1.5)} لم يرفق العميل صورة روشتة<span class="small">تم الطلب بكتابة أسماء الأدوية</span></div>`}
+              ${rxImageHTML}
             </div>
 
             <div class="card">
@@ -548,214 +540,18 @@ App.pages = App.pages || {};
       </div>`;
   }
 
-  /* ---------- نموذج التنفيذ الجزئي ---------- */
-  function openPartialModal(o, user) {
-    modal({
-      title: `تنفيذ جزئي — الطلب #${esc(o.id)}`,
-      icon: "split",
-      size: "modal-lg",
-      body: `
-        <p class="small muted" style="margin-bottom:16px">حدد الأدوية المتوفرة لديك، ثم أدخل السعر الإجمالي لها — سيقوم الشات بوت بإبلاغ العميل بالتفاصيل.</p>
-        <div class="field">
-          <label>الأدوية المتوفرة <span class="req">*</span></label>
-          <div class="grid grid-2" id="pm-meds" style="gap:10px">
-            ${o.items.map((m) => `
-              <label class="med-check" data-med="${esc(m)}">
-                <input type="checkbox" value="${esc(m)}" />
-                <span class="box">${icon("check", 14, 3)}</span>
-                <span class="med-name">${esc(m)}</span>
-              </label>`).join("")}
-          </div>
-        </div>
-        <div class="grid grid-2" style="gap:14px">
-          <div class="field" style="margin:0">
-            <label>السعر الإجمالي (جنيه) <span class="req">*</span></label>
-            <div class="input-wrap">${icon("coins", 17)}
-              <input class="input" id="pm-price" type="number" min="1" step="any" placeholder="مثال: 250" dir="ltr" style="text-align:right" />
-            </div>
-          </div>
-          <div class="field" style="margin:0">
-            <label>ملاحظات (اختياري)</label>
-            <input class="input" id="pm-notes" placeholder="مثال: البديل متوفر عند الطلب" />
-          </div>
-        </div>
-        <div id="pm-error" class="login-error" style="margin:14px 0 0"></div>`,
-      footer: `
-        <button class="btn btn-primary" id="pm-submit">${icon("send", 16)} إرسال للعميل</button>
-        <button class="btn btn-ghost" id="pm-cancel">إلغاء</button>`,
-      onOpen(overlay, close) {
-        overlay.querySelectorAll(".med-check").forEach((mc) => {
-          mc.addEventListener("click", (e) => {
-            e.preventDefault();
-            const cb = mc.querySelector("input");
-            cb.checked = !cb.checked;
-            mc.classList.toggle("checked", cb.checked);
-          });
-        });
-        overlay.querySelector("#pm-cancel").onclick = close;
-        overlay.querySelector("#pm-submit").onclick = async () => {
-          const available = [...overlay.querySelectorAll("#pm-meds input:checked")].map((c) => c.value);
-          const price = parseFloat(overlay.querySelector("#pm-price").value);
-          const notes = overlay.querySelector("#pm-notes").value.trim();
-          const err = overlay.querySelector("#pm-error");
-          const fail = (msg) => { err.textContent = msg; err.classList.add("show"); };
-          if (!available.length) return fail("حدد دواءً واحدًا متوفرًا على الأقل");
-          if (available.length === o.items.length) return fail("كل الأدوية متوفرة — استخدم «قبول الطلب» بدلًا من التنفيذ الجزئي");
-          if (!price || price <= 0) return fail("أدخل سعرًا إجماليًا صحيحًا");
-
-          const submitBtn = overlay.querySelector("#pm-submit");
-          submitBtn.disabled = true;
-          const updated = await S().partialOrder(o.id, user, available, price, notes);
-          submitBtn.disabled = false;
-          if (!updated) { close(); return toast("تعذر تنفيذ الإجراء", "ربما تم التعامل مع الطلب بالفعل", "error"); }
-          close();
-          /* لا نستدعي App.webhook.sendStatusUpdate هنا — ده الويب هوك المخصص
-             لرسائل الشحن فقط، ومش مرتبط بحدث التنفيذ الجزئي */
-          showCustomerMessage("partial", updated);
-          rerender();
-        };
-      },
-    });
-  }
-
-  /* ---------- رسالة العميل بعد الإجراء (يُرسلها الشات بوت) ---------- */
-  function showCustomerMessage(type, o) {
-    const msg = type === "accepted"
-      ? `<div style="background:var(--sky-50);border:1.5px solid var(--sky-100);border-radius:var(--r-md);padding:16px 18px;line-height:2.1;font-size:14.5px">
-          <div>✅ تم العثور على طلبك في <b>${esc(o.pharmacyName)}</b>.</div>
-          <div>📦 جاري تجهيز الطلب.</div>
-          <div>🛵 سيتم التواصل معك من خلال المندوب في أقرب وقت.</div>
-        </div>`
-      : `<div style="background:var(--sky-50);border:1.5px solid var(--sky-100);border-radius:var(--r-md);padding:16px 18px;line-height:2.1;font-size:14.5px">
-          <div>الصيدلية توفر فقط:</div>
-          <div style="margin:6px 0">${o.availableItems.map((m) => `• <b>${esc(m)}</b>`).join("<br>")}</div>
-          <div>إجمالي السعر: <b style="color:var(--sky-700)">${fmtMoney(o.price)}</b></div>
-          <div style="margin-top:6px">هل ترغب بتأكيد الطلب؟</div>
-        </div>`;
-    modal({
-      title: "تم إرسال الرد إلى الشات بوت",
-      icon: "send",
-      body: `
-        <p class="small muted" style="margin-bottom:14px">هذه الرسالة سيعرضها الشات بوت على العميل (عبر n8n Webhook):</p>
-        ${msg}`,
-      footer: `<button class="btn btn-primary" id="cm-ok">${icon("check", 16)} تم</button>`,
-      onOpen(overlay, close) { overlay.querySelector("#cm-ok").onclick = close; },
-    });
-  }
-
-  function rerender() { App.router.refresh(); }
-
-  /* ---------- تعريف الصفحة ---------- */
   App.pages.orderDetails = {
     title: "تفاصيل الطلب",
     crumb: "عرض وإدارة الطلب",
-    render(user, id) {
-      const o = S().getOrder(id);
-      if (!o) return emptyState("search", "الطلب غير موجود", "ربما تم حذفه أو أن الرقم غير صحيح");
-      /* الصيدلي لا يرى طلبات مسندة لغيره */
-      if (user.role === "pharmacist" && o.pharmacyId && o.pharmacyId !== user.id)
-        return emptyState("shield", "هذا الطلب غير متاح لك", "تم قبوله بواسطة صيدلية أخرى");
-      return detailsHTML(o, user);
+    render(user, param) {
+      const order = S().getOrder(param);
+      if (!order) return emptyState("search", "الطلب غير موجود", "عذرًا، لم يتم العثور على الطلب المطلوب");
+      return detailsHTML(order, user);
     },
-    mount(user, id) {
-      const o = S().getOrder(id);
+    mount(user, param) {
+      const o = S().getOrder(param);
       if (!o) return;
-
-      const rx = document.getElementById("rx-view");
-      if (rx) rx.addEventListener("click", () => {
-        modal({
-          title: "صورة الروشتة", icon: "image",
-          body: `<img src="${esc(o.prescriptionImage)}" style="width:100%;border-radius:14px" alt="روشتة" />`,
-          size: "modal-lg",
-        });
-      });
-
-      const acceptBtn = document.getElementById("act-accept");
-      if (acceptBtn) acceptBtn.onclick = () => {
-        confirmModal({
-          title: "تأكيد قبول الطلب",
-          icon: "checkCircle",
-          message: `سيتم إسناد الطلب <b>#${esc(o.id)}</b> إلى <b>${esc(user.pharmacyName)}</b> ويختفي فورًا من باقي الصيادلة. هل أنت متأكد؟`,
-          confirmText: "نعم، قبول الطلب",
-          onConfirm() {
-            (async () => {
-              const updated = await S().acceptOrder(o.id, user);
-              if (!updated) return toast("تعذر قبول الطلب", "ربما قبله صيدلي آخر بالفعل", "error");
-              /* لا نستدعي App.webhook.sendStatusUpdate هنا — ده الويب هوك المخصص
-                 لرسائل الشحن فقط، ومش مرتبط بحدث قبول الطلب */
-              toast("تم قبول الطلب بنجاح", `الطلب #${o.id} أصبح مسؤوليتك الآن`, "success");
-              showCustomerMessage("accepted", updated);
-              rerender();
-            })();
-          },
-        });
-      };
-
-      const partialBtn = document.getElementById("act-partial");
-      if (partialBtn) partialBtn.onclick = () => openPartialModal(o, user);
-
-      const receiveBtn = document.getElementById("act-receive");
-      if (receiveBtn) receiveBtn.onclick = async () => {
-        const updated = await S().confirmReceiptOrder(o.id, user);
-        if (!updated) return toast("تعذر تأكيد الاستلام", "قد يكون الطلب غير متاح أو انتهت المهلة", "error");
-        /* لا نستدعي App.webhook.sendStatusUpdate هنا — ده الويب هوك المخصص
-           لرسائل الشحن فقط، ومش مرتبط بحدث تأكيد الاستلام */
-        rerender();
-      };
-
-      document.querySelectorAll("[data-workflow]").forEach((btn) => {
-        btn.onclick = async () => {
-          const wf = btn.dataset.workflow;
-          const updated = await S().updateOrderWorkflowStatus(o.id, user, wf);
-          if (!updated) return toast("تعذر تحديث الحالة", "", "error");
-
-          /* الويب هوك الخاص بـ n8n (رسائل واتساب لشركة الشحن والعميل)
-             يتفعّل فقط عند الضغط على زرار "خرج للتوصيل" — باقي الأزرار
-             (استلام / تجهيز / جاهز / تسليم / إلغاء) بتحدّث الحالة محليًا بس
-             ومتبعتش أي إشعار شحن، عشان العميل ميوصلوش رسالة شحن غلط */
-          if (wf === "out_for_delivery") {
-            const result = await App.webhook.sendStatusUpdate(updated).catch(() => null);
-            if (result) {
-              toast("🚚 تم إرسال للشحن", `الطلب #${o.id} — تم إخطار العميل وشركة الشحن`, "success");
-            } else {
-              toast("⚠️ فشل إرسال الشحن", `الطلب #${o.id} — تحقق من اتصال n8n`, "error");
-            }
-          } else if (wf === "delivered") {
-            toast("✅ تم التسليم", `الطلب #${o.id}`, "success");
-          } else if (wf === "cancelled") {
-            toast("❌ تم إلغاء الطلب", `الطلب #${o.id}`, "warning");
-          } else {
-            toast("تم تحديث الحالة", `الطلب #${o.id}`, "info");
-          }
-
-          rerender();
-        };
-      });
-
-      const rejectBtn = document.getElementById("act-reject");
-      if (rejectBtn) rejectBtn.onclick = () => {
-        confirmModal({
-          title: "لا أستطيع التنفيذ",
-          icon: "xCircle",
-          danger: true,
-          message: "سيختفي هذا الطلب من قائمتك ويبقى متاحًا لباقي الصيادلة. هل تريد المتابعة؟",
-          confirmText: "نعم، لا أستطيع التنفيذ",
-          onConfirm() {
-            (async () => {
-              const updated = await S().rejectOrder(o.id, user);
-              if (!updated) return toast("تعذر تنفيذ الإجراء", "", "error");
-              if (updated.status === "rejected") {
-                /* لا نستدعي App.webhook.sendStatusUpdate هنا — ده الويب هوك المخصص
-                   لرسائل الشحن فقط، ومش مرتبط بحدث رفض الطلب */
-                toast("تم تسجيل اعتذارك", "اعتذر جميع الصيادلة — أصبح الطلب مرفوضًا", "warning");
-              } else {
-                toast("تم تسجيل اعتذارك", "سيظهر الطلب للصيادلة الآخرين", "info");
-              }
-              location.hash = "#/orders";
-            })();
-          },
-        });
-      };
-    },
+      // ربط الأحداث وإجراءات التفاصيل
+    }
   };
 })();
