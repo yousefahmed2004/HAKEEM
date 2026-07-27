@@ -1,6 +1,6 @@
 /* ============================================================
-   orders.js — مسارات الطلبات (PostgreSQL)
-   ============================================================ */
+    orders.js — مسارات الطلبات (PostgreSQL)
+    ============================================================ */
 const express = require("express");
 const router = express.Router();
 const db = require("../db/database");
@@ -8,8 +8,8 @@ const https = require("https");
 require("dotenv").config();
 
 /* دالة مساعدة: توحيد قيمة status لحروف صغيرة دايمًا
-   عشان القيم القادمة من n8n (Pending / PENDING / pending)
-   متتطابقش مع الفرونت إند اللي بيقارن بـ "pending" حصريًا */
+    عشان القيم القادمة من n8n (Pending / PENDING / pending)
+    متتطابقش مع الفرونت إند اللي بيقارن بـ "pending" حصريًا */
 function normalizeStatus(status) {
     if (!status) return "pending";
     const s = String(status).trim().toLowerCase();
@@ -67,8 +67,8 @@ function resolveItems(order) {
 }
 
 /* ============================================================
-   جلب جميع الطلبات
-   ============================================================ */
+    جلب جميع الطلبات
+    ============================================================ */
 router.get("/orders", async (req, res) => {
     try {
         const { status } = req.query;
@@ -95,15 +95,17 @@ router.get("/orders", async (req, res) => {
 
         const rows = status ? await db.all(query, [status]) : await db.all(query);
 
-        // تحويل البيانات إلى الشكل المطلوب
+        // تحويل البيانات إلى الشكل المطلوب مع تحسين استخراج الصورة
         const formattedOrders = rows.map((order) => {
-            let extractedImage = order.prescriptionImage || order.prescription_image || "";
+            let extractedImage = order.prescriptionImage || order.prescription_image || order.prescription || order.image || "";
             if (!extractedImage) {
                 try {
                     const raw = order.rawItems || order.items;
                     const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-                    if (Array.isArray(parsed) && parsed[0] && parsed[0].image_url) {
-                        extractedImage = parsed[0].image_url;
+                    if (Array.isArray(parsed) && parsed[0]) {
+                        extractedImage = parsed[0].image_url || parsed[0].prescriptionImage || parsed[0].image || "";
+                    } else if (parsed && typeof parsed === "object") {
+                        extractedImage = parsed.image_url || parsed.prescriptionImage || parsed.image || "";
                     }
                 } catch (e) {}
             }
@@ -135,8 +137,8 @@ router.get("/orders", async (req, res) => {
 });
 
 /* ============================================================
-   جلب طلب واحد
-   ============================================================ */
+    جلب طلب واحد
+    ============================================================ */
 router.get("/orders/:id", async (req, res) => {
     try {
         const { id } = req.params;
@@ -168,13 +170,15 @@ router.get("/orders/:id", async (req, res) => {
             [id]
         );
 
-        let extractedImage = order.prescriptionImage || order.prescription_image || "";
+        let extractedImage = order.prescriptionImage || order.prescription_image || order.prescription || order.image || "";
         if (!extractedImage) {
             try {
                 const raw = order.rawItems || order.items;
                 const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-                if (Array.isArray(parsed) && parsed[0] && parsed[0].image_url) {
-                    extractedImage = parsed[0].image_url;
+                if (Array.isArray(parsed) && parsed[0]) {
+                    extractedImage = parsed[0].image_url || parsed[0].prescriptionImage || parsed[0].image || "";
+                } else if (parsed && typeof parsed === "object") {
+                    extractedImage = parsed.image_url || parsed.prescriptionImage || parsed.image || "";
                 }
             } catch (e) {}
         }
@@ -212,11 +216,12 @@ router.get("/orders/:id", async (req, res) => {
 });
 
 /* ============================================================
-   إنشاء طلب جديد
-   ============================================================ */
+    إنشاء طلب جديد
+    ============================================================ */
 router.post("/orders", async (req, res) => {
     try {
-        const { customerName, phone, address, items, prescriptionImage, status } = req.body;
+        const { customerName, phone, address, items, status } = req.body;
+        const prescriptionImage = req.body.prescriptionImage || req.body.prescription_image || req.body.image || req.body.prescription || "";
 
         const result = await db.run(
             `INSERT INTO orders ("customerName", phone, address, items, "prescriptionImage", status, "createdAt")
@@ -227,7 +232,7 @@ router.post("/orders", async (req, res) => {
                 phone,
                 address,
                 items && Array.isArray(items) ? JSON.stringify(items) : null,
-                prescriptionImage || "",
+                prescriptionImage,
                 normalizeStatus(status),
             ]
         );
@@ -248,7 +253,7 @@ router.post("/orders", async (req, res) => {
             [orderId, "تم استلام الطلب من الشات بوت", "#0ea5e9"]
         );
 
-        res.json({ ok: true, order: { id: String(orderId), ...req.body, status: normalizeStatus(status) } });
+        res.json({ ok: true, order: { id: String(orderId), ...req.body, prescriptionImage, status: normalizeStatus(status) } });
     } catch (err) {
         console.error("❌ خطأ في إنشاء الطلب:", err.message);
         res.status(500).json({ ok: false, error: "فشل في إنشاء الطلب" });
@@ -256,8 +261,8 @@ router.post("/orders", async (req, res) => {
 });
 
 /* ============================================================
-   تحديث الطلب
-   ============================================================ */
+    تحديث الطلب
+    ============================================================ */
 router.put("/orders/:id", async (req, res) => {
     try {
         const { id } = req.params;
@@ -314,8 +319,8 @@ router.put("/orders/:id", async (req, res) => {
 });
 
 /* ============================================================
-   رفض الطلب (صيدلي)
-   ============================================================ */
+    رفض الطلب (صيدلي)
+    ============================================================ */
 router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
     try {
         const { id, pharmacyId } = req.params;
@@ -357,8 +362,8 @@ router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
 });
 
 /* ============================================================
-   إحصائيات الطلبات
-   ============================================================ */
+    إحصائيات الطلبات
+    ============================================================ */
 router.get("/orders-stats", async (req, res) => {
     try {
         const stats = await db.get(`
@@ -380,8 +385,8 @@ router.get("/orders-stats", async (req, res) => {
 });
 
 /* ============================================================
-   🔁 بروكسي: إرسال تحديث الشحن إلى n8n Webhook
-   ============================================================ */
+    🔁 بروكسي: إرسال تحديث الشحن إلى n8n Webhook
+    ============================================================ */
 router.post("/webhook/shipping", async (req, res) => {
     const { order_id } = req.body;
 
