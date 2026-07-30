@@ -186,8 +186,13 @@ window.App = window.App || {};
   /* ---------- التحميل والحفظ ---------- */
   let db = null;
   const listeners = { change: [] };
-  const executionTimers = new Map();
   let lastOrdersJson = "";
+
+  /* ملاحظة هامة:
+     مهلة التنفيذ (5 دقايق) بقت بتتحسم في السيرفر (orders.js -> expireOverdueOrders)
+     مش في المتصفح، عشان لو فاتح أكتر من تاب (أدمن / صيدلي تاني) محدش يرجّع
+     الطلب pending بشكل مستقل عن الباقي. الفرونت إند دلوقتي بيكتفي بعرض
+     العد التنازلي وقراءة الحالة النهائية من السيرفر عبر المزامنة الدورية. */
 
   async function syncOrders() {
     try {
@@ -276,59 +281,6 @@ window.App = window.App || {};
     return { label: "أحمر", color: "#dc2626", bg: "#fee2e2" };
   }
 
-  function scheduleExecutionTimeout(order) {
-    if (!order || !order.executionPending || !order.executionDeadline) return;
-    if (executionTimers.has(order.id)) clearTimeout(executionTimers.get(order.id));
-    const delay = new Date(order.executionDeadline).getTime() - Date.now();
-    if (delay <= 0) {
-      expirePendingExecution(order.id);
-      return;
-    }
-    const timer = setTimeout(() => expirePendingExecution(order.id), delay);
-    executionTimers.set(order.id, timer);
-  }
-
-  function expirePendingExecution(orderId) {
-    const order = db?.orders?.find((o) => o.id === orderId);
-    if (!order || !order.executionPending) return null;
-    if (executionTimers.has(orderId)) {
-      clearTimeout(executionTimers.get(orderId));
-      executionTimers.delete(orderId);
-    }
-
-    const pharmacy = db.users.find((u) => u.id === order.pharmacyId);
-    if (pharmacy) {
-      ensureExecutionProfile(pharmacy);
-      pharmacy.executionPoints = Math.max(0, pharmacy.executionPoints - 15);
-      pharmacy.executionStats.failed += 1;
-    }
-
-    order.status = "pending";
-    order.pharmacyId = null;
-    order.pharmacyName = null;
-    order.availableItems = [];
-    order.unavailableItems = [];
-    order.price = null;
-    order.notes = "";
-    order.workflowStatus = null;
-    order.executionPending = false;
-    order.executionCompleted = false;
-    order.executionFailed = true;
-    order.executionDeadline = null;
-    const timelineText = `انتهى وقت تنفيذ الطلب — عادت الطلبات إلى قائمة الانتظار${pharmacy ? ` (${pharmacy.pharmacyName})` : ""}`;
-    const timelineColor = "#f59e0b";
-    order.timeline.push({ at: new Date().toISOString(), text: timelineText, color: timelineColor });
-    save();
-    emit();
-    saveOrderBackend(order, timelineText, timelineColor);
-    return order;
-  }
-
-  function reschedulePendingExecutions() {
-    if (!db?.orders) return;
-    db.orders.filter((o) => o.executionPending && o.executionDeadline).forEach(scheduleExecutionTimeout);
-  }
-
   function load() {
     try {
       const raw = localStorage.getItem(DB_KEY);
@@ -338,7 +290,6 @@ window.App = window.App || {};
       db = seed();
       save();
     }
-    reschedulePendingExecutions();
   }
   function save() { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
   function emit() { listeners.change.forEach((f) => f()); }
@@ -570,7 +521,9 @@ window.App = window.App || {};
       const timelineColor = "#10b981";
       o.timeline.push({ at: new Date().toISOString(), text: timelineText, color: timelineColor });
       save(); emit();
-      scheduleExecutionTimeout(o);
+      /* مهلة الـ 5 دقايق بقت بتتراقب من السيرفر (expireOverdueOrders في orders.js)
+         بمجرد ما الطلب يتحفظ بـ executionDeadline، أي مزامنة جاية هتلقط
+         الحالة النهائية الصح من السيرفر مباشرة. */
       saveOrderBackend(o, timelineText, timelineColor);
       return o;
     },
@@ -635,10 +588,6 @@ window.App = window.App || {};
       const timelineText = `تم استلام الطلب — ${user.pharmacyName}`;
       const timelineColor = "#10b981";
       o.timeline.push({ at: new Date().toISOString(), text: timelineText, color: timelineColor });
-      if (executionTimers.has(id)) {
-        clearTimeout(executionTimers.get(id));
-        executionTimers.delete(id);
-      }
       save(); emit();
       saveOrderBackend(o, timelineText, timelineColor);
       return o;
@@ -646,9 +595,10 @@ window.App = window.App || {};
 
     /* ============================================================
        تحديث حالة سير عمل الطلب (استلام / تجهيز / جاهز / خرج للتوصيل / تسليم / إلغاء)
+       — يستقبل price اختياريًا (بيوصل من نافذة تأكيد الشحن) ويحفظه على الطلب
        — عند "خرج للتوصيل" يتم أيضًا إرسال إشعار الشحن إلى n8n عبر البروكسي
        ============================================================ */
-    updateOrderWorkflowStatus(id, user, workflowStatus) {
+    updateOrderWorkflowStatus(id, user, workflowStatus, price) {
       const o = this.getOrder(id);
       if (!o || o.status !== "accepted" || o.pharmacyId !== user.id) return null;
       const workflowLabels = {
@@ -660,6 +610,9 @@ window.App = window.App || {};
         cancelled: "إلغاء الطلب",
       };
       if (!workflowLabels[workflowStatus]) return null;
+      if (price != null && Number.isFinite(Number(price))) {
+        o.price = Number(price);
+      }
       o.workflowStatus = workflowStatus;
       if (workflowStatus === "delivered") {
         o.deliveredAt = new Date().toISOString();
@@ -684,10 +637,6 @@ window.App = window.App || {};
 
     executeOrder(id, user) {
       return this.confirmReceiptOrder(id, user);
-    },
-
-    expirePendingExecution(id) {
-      return expirePendingExecution(id);
     },
 
     /* استقبال طلب جديد (يُستدعى من Webhook أو المحاكاة) */
