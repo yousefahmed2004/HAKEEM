@@ -69,7 +69,7 @@ function resolveItems(order) {
 /* دالة مساعدة ذكية لاستخراج الصورة بجميع الطرق المحتملة */
 function extractPrescriptionImage(order) {
     let extractedImage = "";
-    
+
     // 1. البحث في الأعمدة المباشرة المحتملة
     const possibleDirect = [
         order.prescriptionImage,
@@ -77,7 +77,7 @@ function extractPrescriptionImage(order) {
         order.prescription,
         order.image
     ];
-    
+
     for (const val of possibleDirect) {
         if (val && typeof val === "string" && val.trim() !== "") {
             extractedImage = val.trim();
@@ -91,7 +91,7 @@ function extractPrescriptionImage(order) {
             const raw = order.rawItems || order.items;
             if (raw) {
                 const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-                
+
                 if (Array.isArray(parsed)) {
                     for (const item of parsed) {
                         if (item && typeof item === "object") {
@@ -416,9 +416,11 @@ router.get("/orders-stats", async (req, res) => {
 
 /* ============================================================
     🔁 بروكسي: إرسال تحديث الشحن إلى n8n Webhook
+    يستقبل order_id (إجباري) و price (اختياري — السعر الإجمالي
+    الذي يدخله الصيدلي عند تنفيذ الطلب) ويمرّرهما معًا إلى n8n
     ============================================================ */
 router.post("/webhook/shipping", async (req, res) => {
-    const { order_id } = req.body;
+    const { order_id, price } = req.body;
 
     if (!order_id) {
         return res.status(400).json({ ok: false, error: "order_id مطلوب" });
@@ -426,11 +428,13 @@ router.post("/webhook/shipping", async (req, res) => {
 
     const n8nUrl = process.env.N8N_WEBHOOK_URL || "https://hakeem-n8n.62wz9l.easypanel.host/webhook/01d35dba-d35a-4e2f-99c0-134558257e79";
 
-    console.log(`[Proxy] إرسال تحديث الشحن للطلب #${order_id} إلى n8n...`);
+    const normalizedPrice = price !== undefined && price !== null && Number.isFinite(Number(price)) ? Number(price) : null;
+
+    console.log(`[Proxy] إرسال تحديث الشحن للطلب #${order_id} (السعر: ${normalizedPrice ?? "غير محدد"}) إلى n8n...`);
 
     try {
         const parsedUrl = new URL(n8nUrl);
-        const postData = JSON.stringify({ order_id });
+        const postData = JSON.stringify({ order_id, price: normalizedPrice });
 
         const options = {
             hostname: parsedUrl.hostname,
