@@ -496,7 +496,7 @@ router.post("/webhook/shipping", async (req, res) => {
         return res.status(400).json({ ok: false, error: "order_id مطلوب" });
     }
 
-    const n8nUrl = process.env.N8N_WEBHOOK_URL || "https://hakeem-n8n.62wz9l.easypanel.host/webhook/01d35dba-d35a-4e2f-99c0-134558257e79";
+    const n8nUrl = process.env.N8N_WEBHOOK_URL || "https://hakeem-n8n.62wz9l.easypanel.host/webhook/SHIBBING";
 
     const normalizedPrice = price !== undefined && price !== null && Number.isFinite(Number(price)) ? Number(price) : null;
 
