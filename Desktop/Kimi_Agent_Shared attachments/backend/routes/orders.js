@@ -119,10 +119,62 @@ function extractPrescriptionImage(order) {
 }
 
 /* ============================================================
+    ⏱️ تنظيف الطلبات اللي انتهت مهلة تنفيذها (Server-side Execution Timeout)
+    ------------------------------------------------------------
+    بتترجع أي طلب "executionPending = 1" وتخطى "executionDeadline"
+    إلى حالة "pending" تاني في قاعدة البيانات مباشرة، عشان القرار
+    يبقى مركزي في السيرفر مش في المتصفح (كان بيسبب رجوع الطلب
+    لقائمة الانتظار بشكل عشوائي بسبب تابات تانية مفتوحة عند
+    مستخدمين آخرين كانت بتشغّل التايمر بتاعها هي بمفردها).
+    ============================================================ */
+async function expireOverdueOrders() {
+    try {
+        const expired = await db.all(`
+            UPDATE orders
+            SET status = 'pending',
+                "pharmacyId" = NULL,
+                "pharmacyName" = NULL,
+                "availableItems" = NULL,
+                "unavailableItems" = NULL,
+                price = NULL,
+                notes = NULL,
+                "workflowStatus" = NULL,
+                "executionPending" = 0,
+                "executionCompleted" = 0,
+                "executionFailed" = 1,
+                "executionDeadline" = NULL,
+                "updatedAt" = NOW()
+            WHERE "executionPending" = 1
+              AND "executionDeadline" IS NOT NULL
+              AND "executionDeadline"::timestamptz < NOW()
+            RETURNING id, "pharmacyName" AS "oldPharmacyName"
+        `);
+
+        for (const row of expired) {
+            const text = row.oldPharmacyName
+                ? `انتهى وقت تنفيذ الطلب — عادت الطلبات إلى قائمة الانتظار (${row.oldPharmacyName})`
+                : "انتهى وقت تنفيذ الطلب — عادت الطلبات إلى قائمة الانتظار";
+            await db.run(
+                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [row.id, text, "#f59e0b"]
+            );
+        }
+
+        if (expired.length) {
+            console.log(`⏱️ انتهت مهلة تنفيذ ${expired.length} طلب/طلبات — رجعوا لقائمة الانتظار`);
+        }
+    } catch (err) {
+        console.error("❌ خطأ في تنظيف الطلبات المنتهية:", err.message);
+    }
+}
+
+/* ============================================================
     جلب جميع الطلبات
     ============================================================ */
 router.get("/orders", async (req, res) => {
     try {
+        await expireOverdueOrders();
+
         const { status } = req.query;
         let query = `
             SELECT 
@@ -167,6 +219,13 @@ router.get("/orders", async (req, res) => {
                 unavailableItems: order.unavailableItems ? (typeof order.unavailableItems === 'string' ? JSON.parse(order.unavailableItems || "[]") : order.unavailableItems) : [],
                 notes: order.notes || "",
                 rejectedBy: order.rejectedBy ? (typeof order.rejectedBy === 'string' ? JSON.parse(order.rejectedBy || "[]") : order.rejectedBy) : [],
+                workflowStatus: order.workflowStatus || null,
+                executionPending: !!order.executionPending,
+                executionDeadline: order.executionDeadline || null,
+                executionCompleted: !!order.executionCompleted,
+                executionFailed: !!order.executionFailed,
+                executedAt: order.executedAt || null,
+                deliveredAt: order.deliveredAt || null,
             };
         });
 
@@ -182,6 +241,8 @@ router.get("/orders", async (req, res) => {
     ============================================================ */
 router.get("/orders/:id", async (req, res) => {
     try {
+        await expireOverdueOrders();
+
         const { id } = req.params;
         const query = `
             SELECT 
@@ -229,6 +290,13 @@ router.get("/orders/:id", async (req, res) => {
             unavailableItems: order.unavailableItems ? (typeof order.unavailableItems === 'string' ? JSON.parse(order.unavailableItems || "[]") : order.unavailableItems) : [],
             notes: order.notes || "",
             rejectedBy: order.rejectedBy ? (typeof order.rejectedBy === 'string' ? JSON.parse(order.rejectedBy || "[]") : order.rejectedBy) : [],
+            workflowStatus: order.workflowStatus || null,
+            executionPending: !!order.executionPending,
+            executionDeadline: order.executionDeadline || null,
+            executionCompleted: !!order.executionCompleted,
+            executionFailed: !!order.executionFailed,
+            executedAt: order.executedAt || null,
+            deliveredAt: order.deliveredAt || null,
             timeline: timelineRows.length ? timelineRows.map((t) => ({
                 at: new Date(t.at).toISOString(),
                 text: t.text,
@@ -396,6 +464,8 @@ router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
     ============================================================ */
 router.get("/orders-stats", async (req, res) => {
     try {
+        await expireOverdueOrders();
+
         const stats = await db.get(`
             SELECT 
                 COUNT(*)::int as total,
