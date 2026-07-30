@@ -8,7 +8,6 @@ window.App = window.App || {};
   const DB_KEY = "pharmacy_bot_db_v1";
   const SESSION_KEY = "pharmacy_bot_session";
 
-  /* ---------- مولد أرقام عشوائية ثابت ---------- */
   function mulberry32(a) {
     return function () {
       a |= 0; a = (a + 0x6d2b79f5) | 0;
@@ -177,6 +176,7 @@ window.App = window.App || {};
 
   async function syncOrders() {
     try {
+      if (typeof App.api?.getOrders !== "function") return;
       const res = await App.api.getOrders();
       if (res && res.ok && Array.isArray(res.orders)) {
         res.orders.forEach((o) => {
@@ -210,6 +210,7 @@ window.App = window.App || {};
 
   async function saveOrderBackend(o, timelineText, timelineColor) {
     try {
+      if (typeof App.api?.updateOrder !== "function") return;
       await App.api.updateOrder(o.id, {
         status: o.status,
         pharmacyId: o.pharmacyId,
@@ -345,9 +346,6 @@ window.App = window.App || {};
       return o;
     },
 
-    /* ============================================================
-       تعديل حالة سير العمل (Workflow) مع تحديث الـ status عند التسليم
-       ============================================================ */
     updateOrderWorkflowStatus(id, user, workflowStatus, price) {
       const o = this.getOrder(id);
       if (!o || o.status !== "accepted" || o.pharmacyId !== user.id) return null;
@@ -371,10 +369,9 @@ window.App = window.App || {};
 
       o.workflowStatus = workflowStatus;
       
-      // التعديل الجوهري: تحويل الـ status الأساسية إلى delivered أو completed عند انتهاء الطلب
       if (workflowStatus === "delivered") {
         o.deliveredAt = new Date().toISOString();
-        o.status = "delivered"; // <--- يمنع البوت من اعتباره pending ويسمح بأوردر جديد
+        o.status = "delivered";
       } else if (workflowStatus === "cancelled") {
         o.status = "cancelled";
       }
@@ -386,15 +383,30 @@ window.App = window.App || {};
       save(); emit();
       saveOrderBackend(o, timelineText, timelineColor);
 
-      if (workflowStatus === "out_for_delivery" || workflowStatus === "delivered") {
+      if ((workflowStatus === "out_for_delivery" || workflowStatus === "delivered") && typeof App.webhook?.sendStatusUpdate === "function") {
         App.webhook.sendStatusUpdate(o).then((ok) => {
           if (!ok) {
-            App.ui.toast("تعذر إبلاغ نظام الشحن (n8n)", "تم تحديث الحالة محليًا فقط", "warning");
+            App.ui?.toast?.("تعذر إبلاغ نظام الشحن (n8n)", "تم تحديث الحالة محليًا فقط", "warning");
           }
         });
       }
 
       return o;
+    },
+
+    stats() {
+      const now = new Date();
+      const s = { today: 0, month: 0, total: db.orders.length, accepted: 0, rejected: 0, partial: 0, pending: 0, revenue: 0 };
+      db.orders.forEach((o) => {
+        const d = new Date(o.createdAt);
+        if (d.toDateString() === now.toDateString()) s.today++;
+        if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) s.month++;
+        if (o.status === "accepted") { s.accepted++; s.revenue += o.price || 0; }
+        else if (o.status === "partial") { s.partial++; s.revenue += o.price || 0; }
+        else if (o.status === "rejected") s.rejected++;
+        else s.pending++;
+      });
+      return s;
     }
   };
 
