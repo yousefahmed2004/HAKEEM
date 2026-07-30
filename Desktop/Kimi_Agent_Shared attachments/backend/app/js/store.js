@@ -208,7 +208,7 @@ window.App = window.App || {};
           lastOrdersJson = currentJson;
           save();
           emit();
-          
+
           // تحديث الصفحة الحالية تلقائيًا إذا لم يكن هناك مودال مفتوح أو إدخال نشط
           const busy = document.querySelector(".modal-overlay") || ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
           if (!busy && window.location.hash) {
@@ -644,6 +644,10 @@ window.App = window.App || {};
       return o;
     },
 
+    /* ============================================================
+       تحديث حالة سير عمل الطلب (استلام / تجهيز / جاهز / خرج للتوصيل / تسليم / إلغاء)
+       — عند "خرج للتوصيل" يتم أيضًا إرسال إشعار الشحن إلى n8n عبر البروكسي
+       ============================================================ */
     updateOrderWorkflowStatus(id, user, workflowStatus) {
       const o = this.getOrder(id);
       if (!o || o.status !== "accepted" || o.pharmacyId !== user.id) return null;
@@ -665,6 +669,16 @@ window.App = window.App || {};
       o.timeline.push({ at: new Date().toISOString(), text: timelineText, color: timelineColor });
       save(); emit();
       saveOrderBackend(o, timelineText, timelineColor);
+
+      /* إرسال إشعار الشحن إلى n8n عند خروج الطلب للتوصيل فعليًا */
+      if (workflowStatus === "out_for_delivery") {
+        App.webhook.sendStatusUpdate(o).then((ok) => {
+          if (!ok) {
+            App.ui.toast("تعذر إبلاغ نظام الشحن (n8n)", "تم تحديث الحالة محليًا فقط، تحقق من الاتصال", "warning");
+          }
+        });
+      }
+
       return o;
     },
 
