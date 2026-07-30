@@ -189,10 +189,11 @@ window.App = window.App || {};
   let lastOrdersJson = "";
 
   /* ملاحظة هامة:
-     مهلة التنفيذ (5 دقايق) بقت بتتحسم في السيرفر (orders.js -> expireOverdueOrders)
+     مهلة التنفيذ (5 دقايق) بتتحسم نهائيًا في السيرفر (orders.js -> expireOverdueOrders)
      مش في المتصفح، عشان لو فاتح أكتر من تاب (أدمن / صيدلي تاني) محدش يرجّع
-     الطلب pending بشكل مستقل عن الباقي. الفرونت إند دلوقتي بيكتفي بعرض
-     العد التنازلي وقراءة الحالة النهائية من السيرفر عبر المزامنة الدورية. */
+     الطلب pending بشكل مستقل عن الباقي. كمان أي خطوة توركفلو (تجهيز/جاهز/خرج
+     للتوصيل...) بتصفّر executionPending/executionDeadline فورًا عشان المهلة
+     متفضلش شغالة في الخلفية وترجّع الطلب pending حتى لو اتنفذ فعليًا. */
 
   async function syncOrders() {
     try {
@@ -521,9 +522,9 @@ window.App = window.App || {};
       const timelineColor = "#10b981";
       o.timeline.push({ at: new Date().toISOString(), text: timelineText, color: timelineColor });
       save(); emit();
-      /* مهلة الـ 5 دقايق بقت بتتراقب من السيرفر (expireOverdueOrders في orders.js)
-         بمجرد ما الطلب يتحفظ بـ executionDeadline، أي مزامنة جاية هتلقط
-         الحالة النهائية الصح من السيرفر مباشرة. */
+      /* مهلة الـ 5 دقايق دي بتتراقب سيرفريًا (expireOverdueOrders في orders.js).
+         أي خطوة تالية (تأكيد استلام أو أي إجراء توركفلو) هتصفّرها فورًا —
+         شوف confirmReceiptOrder و updateOrderWorkflowStatus تحت. */
       saveOrderBackend(o, timelineText, timelineColor);
       return o;
     },
@@ -596,6 +597,11 @@ window.App = window.App || {};
     /* ============================================================
        تحديث حالة سير عمل الطلب (استلام / تجهيز / جاهز / خرج للتوصيل / تسليم / إلغاء)
        — يستقبل price اختياريًا (بيوصل من نافذة تأكيد الشحن) ويحفظه على الطلب
+       — ⚠️ أهم نقطة: بيصفّر executionPending/executionDeadline فورًا مع أي
+         خطوة توركفلو، عشان مهلة الـ 5 دقايق (المحسوبة من وقت "قبول الطلب")
+         متفضلش شغالة في الخلفية وترجّع الطلب pending حتى لو الصيدلي كان
+         فعليًا بيتحرك بين الخطوات (تجهيز → جاهز → خرج للتوصيل...) — ده كان
+         السبب الأساسي في رجوع الطلب لقائمة الانتظار عند "تم الشحن"
        — عند "خرج للتوصيل" يتم أيضًا إرسال إشعار الشحن إلى n8n عبر البروكسي
        ============================================================ */
     updateOrderWorkflowStatus(id, user, workflowStatus, price) {
@@ -610,9 +616,15 @@ window.App = window.App || {};
         cancelled: "إلغاء الطلب",
       };
       if (!workflowLabels[workflowStatus]) return null;
+
       if (price != null && Number.isFinite(Number(price))) {
         o.price = Number(price);
       }
+
+      /* إلغاء مهلة التنفيذ فور اتخاذ أي إجراء توركفلو — انظر الشرح أعلى الدالة */
+      o.executionPending = false;
+      o.executionDeadline = null;
+
       o.workflowStatus = workflowStatus;
       if (workflowStatus === "delivered") {
         o.deliveredAt = new Date().toISOString();
