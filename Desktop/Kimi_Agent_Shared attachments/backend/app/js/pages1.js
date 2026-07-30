@@ -404,6 +404,37 @@ App.pages = App.pages || {};
   const { icon, esc, statusBadge, fmtDateTime, timeAgo, fmtMoney, emptyState, toast, modal, confirmModal, STATUS } = App.ui;
   const S = () => App.store;
 
+  /* ============================================================
+     أزرار "Active Orders" — ترتيب إجباري: خطوة واحدة تالية متاحة فقط،
+     والخطوات المنجزة تظهر معطّلة بعلامة صح، وباقي الخطوات معطّلة كذلك
+     ============================================================ */
+  const WORKFLOW_STEPS = [
+    { key: "received", label: "تم استلام الطلب" },
+    { key: "preparing", label: "جاري التجهيز" },
+    { key: "ready", label: "جاهز للتوصيل" },
+    { key: "out_for_delivery", label: "خرج للتوصيل" },
+    { key: "delivered", label: "تم التسليم" },
+  ];
+
+  function renderWorkflowButtons(o) {
+    const seq = WORKFLOW_STEPS.map((s) => s.key);
+    const currentIdx = seq.indexOf(o.workflowStatus);
+    const isTerminal = o.workflowStatus === "delivered" || o.workflowStatus === "cancelled";
+    const nextIdx = currentIdx + 1;
+
+    const stepButtons = WORKFLOW_STEPS.map((item, idx) => {
+      const isDone = idx <= currentIdx;
+      const isNext = idx === nextIdx && !isTerminal;
+      const disabled = !isNext;
+      return `<button class="btn btn-soft btn-sm" data-workflow="${item.key}" ${disabled ? "disabled" : ""} style="${isDone ? "opacity:.55" : ""}">${isDone ? icon("check", 13) + " " : ""}${item.label}</button>`;
+    }).join("");
+
+    const cancelDisabled = isTerminal;
+    const cancelButton = `<button class="btn btn-danger-soft btn-sm" data-workflow="cancelled" ${cancelDisabled ? "disabled" : ""}>${icon("xCircle", 13)} إلغاء الطلب</button>`;
+
+    return stepButtons + cancelButton;
+  }
+
   function detailsHTML(o, user) {
     if (!o.timeline) o.timeline = [{ at: o.createdAt || new Date().toISOString(), text: "تم استلام الطلب من الشات بوت", color: "#0ea5e9" }];
     if (!o.rejectedBy) o.rejectedBy = [];
@@ -478,8 +509,9 @@ App.pages = App.pages || {};
             <span class="badge badge-info">${esc(workflowStateMap[o.workflowStatus] || workflowStateMap.awaiting_receipt)}</span>
           </div>
           <div style="display:flex;gap:9px;flex-wrap:wrap">
-            ${[{ key: "received", label: "تم استلام الطلب" }, { key: "preparing", label: "جاري التجهيز" }, { key: "ready", label: "جاهز للتوصيل" }, { key: "out_for_delivery", label: "خرج للتوصيل" }, { key: "delivered", label: "تم التسليم" }, { key: "cancelled", label: "إلغاء الطلب" }].map((item) => `<button class="btn btn-soft btn-sm" data-workflow="${item.key}" ${o.workflowStatus === item.key ? "disabled" : ""}>${item.label}</button>`).join("")}
+            ${renderWorkflowButtons(o)}
           </div>
+          <p class="small muted" style="margin:12px 0 0">كل خطوة تتطلب تأكيدًا ولا يمكن الرجوع إليها بعد إتمامها — يجب اتباع الترتيب خطوة بخطوة.</p>
         </div>` : ""}
 
         <div class="detail-grid">
@@ -587,6 +619,36 @@ App.pages = App.pages || {};
     });
   }
 
+  /* ============================================================
+     نافذة إدخال السعر الإجمالي قبل خطوة "خرج للتوصيل"
+     (للطلبات المقبولة بالكامل التي لم يُحدد سعرها بعد — تُرسل مع شركة الشحن)
+     ============================================================ */
+  function openShippingPriceModal(o, onConfirmed) {
+    modal({
+      title: `تأكيد الشحن — الطلب #${esc(o.id)}`,
+      icon: "coins",
+      body: `
+        <p class="small muted" style="margin-bottom:12px">أدخل السعر الإجمالي للطلب — سيتم إرساله مع شركة الشحن فور خروج الطلب للتوصيل.</p>
+        <div class="field" style="margin:0"><label>السعر الإجمالي (جنيه) <span class="req">*</span></label>
+          <input class="input" id="sp-price" type="number" min="0" placeholder="مثال: 150" /></div>
+        <div id="sp-error" class="login-error" style="margin-top:12px"></div>`,
+      footer: `
+        <button class="btn btn-primary" id="sp-save">${icon("check", 16)} تأكيد الشحن</button>
+        <button class="btn btn-ghost" id="sp-cancel">إلغاء</button>`,
+      onOpen(overlay, close) {
+        overlay.querySelector("#sp-cancel").onclick = close;
+        overlay.querySelector("#sp-save").onclick = () => {
+          const err = overlay.querySelector("#sp-error");
+          const fail = (m) => { err.textContent = m; err.classList.add("show"); };
+          const price = Number(overlay.querySelector("#sp-price").value);
+          if (!Number.isFinite(price) || price <= 0) return fail("أدخل سعرًا صحيحًا أكبر من صفر");
+          close();
+          onConfirmed(price);
+        };
+      },
+    });
+  }
+
   App.pages.orderDetails = {
     title: "تفاصيل الطلب",
     crumb: "عرض وإدارة الطلب",
@@ -601,26 +663,34 @@ App.pages = App.pages || {};
 
       const refresh = () => App.router.refresh();
 
-      /* قبول الطلب بالكامل */
+      /* قبول الطلب بالكامل — يتطلب تأكيدًا، ولا يمكن التراجع عنه بعد القبول */
       const acceptBtn = document.getElementById("act-accept");
       if (acceptBtn) acceptBtn.onclick = () => {
-        const result = S().acceptOrder(o.id, user);
-        if (result) {
-          toast("تم قبول الطلب بنجاح", `#${o.id}`, "success");
-          refresh();
-        } else {
-          toast("تعذر قبول الطلب", "ربما وصلت للحد الأقصى من الطلبات النشطة أو تم التعامل معه بالفعل", "error");
-        }
+        confirmModal({
+          title: "تأكيد قبول الطلب",
+          icon: "checkCircle",
+          message: `هل أنت متأكد من قبول الطلب <b>#${esc(o.id)}</b>؟ سيصبح هذا الطلب مسؤوليتك ولن يظهر بعدها لباقي الصيادلة.`,
+          confirmText: "نعم، قبول الطلب",
+          onConfirm() {
+            const result = S().acceptOrder(o.id, user);
+            if (result) {
+              toast("تم قبول الطلب بنجاح", `#${o.id}`, "success");
+            } else {
+              toast("تعذر قبول الطلب", "ربما وصلت للحد الأقصى من الطلبات النشطة أو تم التعامل معه بالفعل", "error");
+            }
+            refresh();
+          },
+        });
       };
 
-      /* الاعتذار عن تنفيذ الطلب */
+      /* الاعتذار عن تنفيذ الطلب — يتطلب تأكيدًا، ولا يمكن التراجع عنه */
       const rejectBtn = document.getElementById("act-reject");
       if (rejectBtn) rejectBtn.onclick = () => {
         confirmModal({
           title: "الاعتذار عن تنفيذ الطلب",
           icon: "xCircle",
           danger: true,
-          message: `هل أنت متأكد من الاعتذار عن تنفيذ الطلب <b>#${esc(o.id)}</b>؟ سيظل الطلب ظاهرًا لباقي الصيادلة.`,
+          message: `هل أنت متأكد من الاعتذار عن تنفيذ الطلب <b>#${esc(o.id)}</b>؟ سيظل الطلب ظاهرًا لباقي الصيادلة ولن تتمكن من التراجع عن الاعتذار.`,
           confirmText: "نعم، اعتذار",
           onConfirm() {
             S().rejectOrder(o.id, user);
@@ -630,32 +700,77 @@ App.pages = App.pages || {};
         });
       };
 
-      /* تأكيد استلام الطلب (بعد القبول) */
+      /* تأكيد استلام الطلب (بعد القبول) — يتطلب تأكيدًا، خطوة تُنفّذ مرة واحدة فقط */
       const receiveBtn = document.getElementById("act-receive");
       if (receiveBtn) receiveBtn.onclick = () => {
-        const result = S().confirmReceiptOrder(o.id, user);
-        if (result) {
-          toast("تم تأكيد استلام الطلب", `#${o.id}`, "success");
-        } else {
-          toast("تعذر تأكيد الاستلام", "", "error");
-        }
-        refresh();
+        confirmModal({
+          title: "تأكيد استلام الطلب",
+          icon: "checkCircle",
+          message: `هل تؤكد استلام الطلب <b>#${esc(o.id)}</b> فعليًا؟ لا يمكن التراجع عن هذه الخطوة بعد التأكيد.`,
+          confirmText: "نعم، تأكيد الاستلام",
+          onConfirm() {
+            const result = S().confirmReceiptOrder(o.id, user);
+            if (result) {
+              toast("تم تأكيد استلام الطلب", `#${o.id}`, "success");
+            } else {
+              toast("تعذر تأكيد الاستلام", "", "error");
+            }
+            refresh();
+          },
+        });
       };
 
-      /* التنفيذ الجزئي — يفتح نافذة لاختيار الأصناف المتوفرة والسعر */
+      /* التنفيذ الجزئي — يفتح نافذة لاختيار الأصناف المتوفرة والسعر (تعمل كتأكيد بحد ذاتها) */
       const partialBtn = document.getElementById("act-partial");
       if (partialBtn) partialBtn.onclick = () => openPartialModal(o, user);
 
-      /* أزرار تغيير حالة سير العمل (استلام / تجهيز / توصيل / تسليم / إلغاء) */
+      /* أزرار تغيير حالة سير العمل (استلام / تجهيز / جاهز / خرج للتوصيل / تسليم / إلغاء)
+         — ترتيب إجباري: خطوة واحدة تالية فقط متاحة، وكل خطوة تتطلب تأكيدًا نهائيًا
+         — عند "خرج للتوصيل": لو الطلب مقبول بالكامل بدون سعر، تُفتح نافذة السعر أولًا */
       document.querySelectorAll("[data-workflow]").forEach((btn) => {
         btn.onclick = () => {
-          const result = S().updateOrderWorkflowStatus(o.id, user, btn.dataset.workflow);
-          if (result) {
-            toast("تم تحديث حالة الطلب", "", "success");
-          } else {
-            toast("تعذر تحديث حالة الطلب", "", "error");
+          const key = btn.dataset.workflow;
+          const labelMap = {
+            received: "تم استلام الطلب",
+            preparing: "جاري التجهيز",
+            ready: "جاهز للتوصيل",
+            out_for_delivery: "خرج للتوصيل",
+            delivered: "تم التسليم",
+            cancelled: "إلغاء الطلب",
+          };
+
+          const applyStatus = (price) => {
+            const result = S().updateOrderWorkflowStatus(o.id, user, key, price);
+            if (result) {
+              toast("تم تحديث حالة الطلب", labelMap[key], "success");
+            } else {
+              toast("تعذر تحديث حالة الطلب", "قد تكون هذه الخطوة تمت بالفعل أو غير مسموحة الآن", "error");
+            }
+            refresh();
+          };
+
+          /* خطوة الشحن تتطلب إدخال السعر الإجمالي أولاً إن لم يكن محددًا (طلب كامل غير جزئي) */
+          if (key === "out_for_delivery" && o.price == null) {
+            openShippingPriceModal(o, (price) => {
+              confirmModal({
+                title: "تأكيد خروج الطلب للتوصيل",
+                icon: "checkCircle",
+                message: `هل تؤكد خروج الطلب <b>#${esc(o.id)}</b> للتوصيل بسعر إجمالي <b>${esc(String(price))} جنيه</b>؟ سيتم إبلاغ شركة الشحن فورًا ولا يمكن التراجع عن هذه الخطوة.`,
+                confirmText: "نعم، تأكيد الشحن",
+                onConfirm() { applyStatus(price); },
+              });
+            });
+            return;
           }
-          refresh();
+
+          confirmModal({
+            title: `تأكيد: ${labelMap[key]}`,
+            icon: key === "cancelled" ? "ban" : "checkCircle",
+            danger: key === "cancelled",
+            message: `هل أنت متأكد من تحديث حالة الطلب <b>#${esc(o.id)}</b> إلى «${labelMap[key]}»؟ لا يمكن التراجع عن هذه الخطوة بعد التأكيد.`,
+            confirmText: "نعم، تأكيد",
+            onConfirm() { applyStatus(null); },
+          });
         };
       });
     }
