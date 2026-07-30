@@ -438,7 +438,7 @@ App.pages = App.pages || {};
     // التحقق الآمن والسليم لعرض صورة الروشتة أو رسالة بديلة في حال عدم توفر رابط صحيح
     const rxImg = o.prescriptionImage;
     const hasValidImage = rxImg && typeof rxImg === "string" && rxImg.trim() !== "" && rxImg !== "undefined" && (rxImg.startsWith("http") || rxImg.startsWith("data:image") || rxImg.startsWith("/"));
-    
+
     const rxImageHTML = hasValidImage
       ? `<div class="rx-image" id="rx-view"><img src="${esc(rxImg)}" alt="روشتة العميل" /></div>
          <div class="small muted" style="margin-top:9px;text-align:center">اضغط على الصورة للتكبير</div>`
@@ -542,6 +542,51 @@ App.pages = App.pages || {};
       </div>`;
   }
 
+  /* ============================================================
+     نافذة التنفيذ الجزئي — تحديد الأصناف المتوفرة والسعر
+     ============================================================ */
+  function openPartialModal(o, user) {
+    modal({
+      title: `تنفيذ جزئي — الطلب #${esc(o.id)}`,
+      icon: "split",
+      body: `
+        <p class="small muted" style="margin-bottom:12px">حدد الأدوية المتوفرة لديك من أصل ${o.items.length} صنف</p>
+        <div id="pm-items" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+          ${o.items.map((m, i) => `
+            <label style="display:flex;align-items:center;gap:9px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer">
+              <input type="checkbox" class="pm-item-check" value="${esc(m)}" data-idx="${i}" checked />
+              <span>${esc(m)}</span>
+            </label>`).join("")}
+        </div>
+        <div class="field" style="margin-bottom:10px"><label>السعر الإجمالي (جنيه)</label>
+          <input class="input" id="pm-price" type="number" min="0" placeholder="مثال: 150" /></div>
+        <div class="field" style="margin:0"><label>ملاحظات (اختياري)</label>
+          <input class="input" id="pm-notes" placeholder="أي ملاحظات إضافية..." /></div>
+        <div id="pm-error" class="login-error" style="margin-top:12px"></div>`,
+      footer: `
+        <button class="btn btn-primary" id="pm-save">${icon("check", 16)} تأكيد التنفيذ الجزئي</button>
+        <button class="btn btn-ghost" id="pm-cancel">إلغاء</button>`,
+      onOpen(overlay, close) {
+        overlay.querySelector("#pm-cancel").onclick = close;
+        overlay.querySelector("#pm-save").onclick = () => {
+          const err = overlay.querySelector("#pm-error");
+          const fail = (m) => { err.textContent = m; err.classList.add("show"); };
+          const checked = [...overlay.querySelectorAll(".pm-item-check:checked")].map((c) => c.value);
+          const price = Number(overlay.querySelector("#pm-price").value);
+          const notes = overlay.querySelector("#pm-notes").value.trim();
+          if (!checked.length) return fail("حدد صنفًا واحدًا على الأقل كمتوفر");
+          if (checked.length === o.items.length) return fail("لو كل الأصناف متوفرة استخدم زر «قبول الطلب» بدلاً من التنفيذ الجزئي");
+          if (!Number.isFinite(price) || price <= 0) return fail("أدخل سعرًا صحيحًا أكبر من صفر");
+          const result = S().partialOrder(o.id, user, checked, price, notes);
+          if (!result) return fail("تعذر تنفيذ العملية، حاول مرة أخرى");
+          close();
+          toast("تم تنفيذ الطلب جزئيًا", `#${o.id}`, "success");
+          App.router.refresh();
+        };
+      },
+    });
+  }
+
   App.pages.orderDetails = {
     title: "تفاصيل الطلب",
     crumb: "عرض وإدارة الطلب",
@@ -553,6 +598,66 @@ App.pages = App.pages || {};
     mount(user, param) {
       const o = S().getOrder(param);
       if (!o) return;
+
+      const refresh = () => App.router.refresh();
+
+      /* قبول الطلب بالكامل */
+      const acceptBtn = document.getElementById("act-accept");
+      if (acceptBtn) acceptBtn.onclick = () => {
+        const result = S().acceptOrder(o.id, user);
+        if (result) {
+          toast("تم قبول الطلب بنجاح", `#${o.id}`, "success");
+          refresh();
+        } else {
+          toast("تعذر قبول الطلب", "ربما وصلت للحد الأقصى من الطلبات النشطة أو تم التعامل معه بالفعل", "error");
+        }
+      };
+
+      /* الاعتذار عن تنفيذ الطلب */
+      const rejectBtn = document.getElementById("act-reject");
+      if (rejectBtn) rejectBtn.onclick = () => {
+        confirmModal({
+          title: "الاعتذار عن تنفيذ الطلب",
+          icon: "xCircle",
+          danger: true,
+          message: `هل أنت متأكد من الاعتذار عن تنفيذ الطلب <b>#${esc(o.id)}</b>؟ سيظل الطلب ظاهرًا لباقي الصيادلة.`,
+          confirmText: "نعم، اعتذار",
+          onConfirm() {
+            S().rejectOrder(o.id, user);
+            toast("تم الاعتذار عن الطلب", `#${o.id}`, "warning");
+            refresh();
+          },
+        });
+      };
+
+      /* تأكيد استلام الطلب (بعد القبول) */
+      const receiveBtn = document.getElementById("act-receive");
+      if (receiveBtn) receiveBtn.onclick = () => {
+        const result = S().confirmReceiptOrder(o.id, user);
+        if (result) {
+          toast("تم تأكيد استلام الطلب", `#${o.id}`, "success");
+        } else {
+          toast("تعذر تأكيد الاستلام", "", "error");
+        }
+        refresh();
+      };
+
+      /* التنفيذ الجزئي — يفتح نافذة لاختيار الأصناف المتوفرة والسعر */
+      const partialBtn = document.getElementById("act-partial");
+      if (partialBtn) partialBtn.onclick = () => openPartialModal(o, user);
+
+      /* أزرار تغيير حالة سير العمل (استلام / تجهيز / توصيل / تسليم / إلغاء) */
+      document.querySelectorAll("[data-workflow]").forEach((btn) => {
+        btn.onclick = () => {
+          const result = S().updateOrderWorkflowStatus(o.id, user, btn.dataset.workflow);
+          if (result) {
+            toast("تم تحديث حالة الطلب", "", "success");
+          } else {
+            toast("تعذر تحديث حالة الطلب", "", "error");
+          }
+          refresh();
+        };
+      });
     }
   };
 })();
