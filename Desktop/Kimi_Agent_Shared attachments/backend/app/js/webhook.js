@@ -30,10 +30,10 @@ window.App = window.App || {};
       return App.store.addOrder(order);
     },
     /**
-     * إرسال تحديث حالة الطلب إلى n8n عبر Backend Proxy
+     * إرسال تحديث حالة الطلب (مع السعر الإجمالي) إلى n8n عبر Backend Proxy
      * لتجنب مشكلة CORS في المتصفح.
-     * الصيغة: { "order_id": 10255 }
-     * @param {Object} order — كائن الطلب (يجب أن يحتوي على order.id)
+     * الصيغة: { "order_id": 10255, "price": 150 }
+     * @param {Object} order — كائن الطلب (يجب أن يحتوي على order.id، ويُفضّل order.price)
      * @returns {boolean} true إذا نجح الإرسال، false إذا فشل
      */
     async sendStatusUpdate(order) {
@@ -43,6 +43,7 @@ window.App = window.App || {};
       }
       const payload = {
         order_id: Number(order.id),
+        price: order.price != null && Number.isFinite(Number(order.price)) ? Number(order.price) : null,
       };
       console.log(`%c[Webhook] إرسال إلى Proxy Backend:`, "color:#0ea5e9;font-weight:bold", JSON.stringify(payload));
       try {
@@ -71,7 +72,7 @@ window.App = window.App || {};
      await App.webhook.testConnection() */
   App.webhook.testConnection = async function () {
     console.log("%c[Webhook] اختبار الاتصال بـ Backend Proxy...", "color:#0ea5e9;font-weight:bold");
-    const result = await App.webhook.sendStatusUpdate({ id: "99999" });
+    const result = await App.webhook.sendStatusUpdate({ id: "99999", price: 100 });
     if (result) {
       console.log("%c[Webhook] ✅ الاختبار ناجح", "color:#10b981;font-weight:bold");
     } else {
