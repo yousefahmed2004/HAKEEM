@@ -360,6 +360,14 @@ router.post("/orders", async (req, res) => {
 
 /* ============================================================
     تحديث الطلب
+    ------------------------------------------------------------
+    ⚠️ إغلاق تلقائي عند الشحن:
+    بمجرد ما workflowStatus بيوصل "out_for_delivery" (زر "خرج
+    للتوصيل" / تم الشحن)، الطلب بيتقفل مباشرة (status = 'closed')
+    من هنا في الباك إند نفسه — من غير ما نستنى أي خطوة خارجية
+    (زي n8n) تعمل ده. ده كمان بيقفل الـ WhatsApp session بتاعة
+    العميل في جدول customers في نفس اللحظة، عشان لو بعت رسالة
+    تانية بعدها الشات بوت يبدأ معاه طلب جديد مباشرة.
     ============================================================ */
 router.put("/orders/:id", async (req, res) => {
     try {
@@ -372,7 +380,13 @@ router.put("/orders/:id", async (req, res) => {
             timelineText, timelineColor,
         } = req.body;
 
-        await db.run(
+        /* أي طلب يوصل لخطوة "خرج للتوصيل" يتقفل أوتوماتيك بغض النظر
+           عن الـ status اللي جاي من الفرونت إند */
+        const finalStatus = workflowStatus === "out_for_delivery"
+            ? "closed"
+            : (status ? normalizeStatus(status) : null);
+
+        const updated = await db.get(
             `UPDATE orders 
              SET status = $1, "pharmacyId" = $2, "pharmacyName" = $3, 
                  "availableItems" = $4, "unavailableItems" = $5, 
@@ -381,9 +395,10 @@ router.put("/orders/:id", async (req, res) => {
                  "executionCompleted" = $11, "executionFailed" = $12,
                  "executedAt" = $13, "deliveredAt" = $14,
                  "rejectedBy" = $15, "updatedAt" = NOW()
-             WHERE id = $16`,
+             WHERE id = $16
+             RETURNING phone`,
             [
-                status ? normalizeStatus(status) : null,
+                finalStatus,
                 pharmacyId || null,
                 pharmacyName || null,
                 availableItems ? JSON.stringify(availableItems) : null,
@@ -401,6 +416,19 @@ router.put("/orders/:id", async (req, res) => {
                 id,
             ]
         );
+
+        /* إغلاق session الشات بوت الخاصة بالعميل فور خروج الطلب للتوصيل،
+           بديل نود "close session" اللي كانت في n8n */
+        if (workflowStatus === "out_for_delivery" && updated && updated.phone) {
+            try {
+                await db.run(
+                    `UPDATE customers SET session_status = 'CLOSED' WHERE phone_number = $1`,
+                    [updated.phone]
+                );
+            } catch (sessErr) {
+                console.error("❌ خطأ في إغلاق جلسة العميل:", sessErr.message);
+            }
+        }
 
         if (timelineText) {
             await db.run(
@@ -470,7 +498,7 @@ router.get("/orders-stats", async (req, res) => {
             SELECT 
                 COUNT(*)::int as total,
                 COUNT(*) FILTER (WHERE LOWER(status) = 'pending')::int as pending,
-                COUNT(*) FILTER (WHERE LOWER(status) = 'accepted')::int as accepted,
+                COUNT(*) FILTER (WHERE LOWER(status) IN ('accepted', 'closed'))::int as accepted,
                 COUNT(*) FILTER (WHERE LOWER(status) = 'partial')::int as partial,
                 COUNT(*) FILTER (WHERE LOWER(status) = 'rejected')::int as rejected
             FROM orders
