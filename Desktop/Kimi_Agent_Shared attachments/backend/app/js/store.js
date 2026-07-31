@@ -193,7 +193,14 @@ window.App = window.App || {};
      مش في المتصفح، عشان لو فاتح أكتر من تاب (أدمن / صيدلي تاني) محدش يرجّع
      الطلب pending بشكل مستقل عن الباقي. كمان أي خطوة توركفلو (تجهيز/جاهز/خرج
      للتوصيل...) بتصفّر executionPending/executionDeadline فورًا عشان المهلة
-     متفضلش شغالة في الخلفية وترجّع الطلب pending حتى لو اتنفذ فعليًا. */
+     متفضلش شغالة في الخلفية وترجّع الطلب pending حتى لو اتنفذ فعليًا.
+
+     ملاحظة إضافية: عند "خرج للتوصيل" (تم الشحن)، الباك إند بيقفل الطلب
+     مباشرة (status = "closed") وكمان بيقفل الـ WhatsApp session بتاعة
+     العميل — كل ده من غير أي وسيط خارجي (n8n). الفرونت إند هنا لازم
+     يتعامل مع "closed" كامتداد طبيعي لـ "accepted" في كل الأماكن اللي
+     كانت بتشيك على "accepted" بس، عشان الطلب يفضل ظاهر للصيدلي وضمن
+     الإحصائيات لحد ما يتسلّم فعليًا. */
 
   async function syncOrders() {
     try {
@@ -479,21 +486,21 @@ window.App = window.App || {};
       return this.getOrders().filter((o) => o.status === "pending" && o.rejectedBy && !o.rejectedBy.includes(pharmacistId));
     },
     mineFor(pharmacistId) {
-      return this.getOrders().filter((o) => o.pharmacyId === pharmacistId && (o.status === "accepted" || o.status === "partial"));
+      return this.getOrders().filter((o) => o.pharmacyId === pharmacistId && (o.status === "accepted" || o.status === "partial" || o.status === "closed"));
     },
     myOrdersCurrent(pharmacistId) {
-      return this.getOrders().filter((o) => o.pharmacyId === pharmacistId && (o.status === "accepted" || o.status === "partial") && !["delivered", "cancelled"].includes(o.workflowStatus || ""));
+      return this.getOrders().filter((o) => o.pharmacyId === pharmacistId && (o.status === "accepted" || o.status === "partial" || o.status === "closed") && !["delivered", "cancelled"].includes(o.workflowStatus || ""));
     },
     myOrdersCompletedToday(pharmacistId) {
       const today = new Date();
       const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
-      return this.getOrders().filter((o) => o.pharmacyId === pharmacistId && (o.status === "accepted" || o.status === "partial") && (o.deliveredAt || o.executedAt) && new Date(o.deliveredAt || o.executedAt) >= new Date(startOfDay));
+      return this.getOrders().filter((o) => o.pharmacyId === pharmacistId && (o.status === "accepted" || o.status === "partial" || o.status === "closed") && (o.deliveredAt || o.executedAt) && new Date(o.deliveredAt || o.executedAt) >= new Date(startOfDay));
     },
     myOrdersHistory(pharmacistId, filter = "all") {
       const all = this.getOrders().filter((o) => o.pharmacyId === pharmacistId);
       if (filter === "all") return all;
       return all.filter((o) => {
-        if (filter === "accepted") return o.status === "accepted";
+        if (filter === "accepted") return o.status === "accepted" || o.status === "closed";
         if (filter === "partial") return o.status === "partial";
         if (filter === "rejected") return o.rejectedBy && o.rejectedBy.includes(pharmacistId);
         return true;
@@ -600,9 +607,16 @@ window.App = window.App || {};
        — ⚠️ أهم نقطة: بيصفّر executionPending/executionDeadline فورًا مع أي
          خطوة توركفلو، عشان مهلة الـ 5 دقايق (المحسوبة من وقت "قبول الطلب")
          متفضلش شغالة في الخلفية وترجّع الطلب pending حتى لو الصيدلي كان
-         فعليًا بيتحرك بين الخطوات (تجهيز → جاهز → خرج للتوصيل...) — ده كان
-         السبب الأساسي في رجوع الطلب لقائمة الانتظار عند "تم الشحن"
+         فعليًا بيتحرك بين الخطوات (تجهيز → جاهز → خرج للتوصيل...)
+       — عند "خرج للتوصيل": الباك إند (routes/orders.js) هو اللي بيقفل
+         الطلب فعليًا (status = "closed") وبيقفل الـ WhatsApp session
+         بتاعة العميل مباشرة — مفيش أي اعتماد على n8n في القفل ده،
+         الفرونت إند هنا بس بيبعت workflowStatus ويستنى رد الباك إند
+         (updateOrderWorkflowStatus / saveOrderBackend) اللي هيرجّع
+         الحالة النهائية "closed" في المزامنة التالية (syncOrders).
        — عند "خرج للتوصيل" يتم أيضًا إرسال إشعار الشحن إلى n8n عبر البروكسي
+         (ده لسه محتاجينه بس عشان يوصل السعر والعنوان لشركة الشحن، مش
+         عشان يقفل السيشن — القفل بقى مسؤولية الباك إند وحده)
        ============================================================ */
     updateOrderWorkflowStatus(id, user, workflowStatus, price) {
       const o = this.getOrder(id);
@@ -626,6 +640,12 @@ window.App = window.App || {};
       o.executionDeadline = null;
 
       o.workflowStatus = workflowStatus;
+      /* الحالة النهائية (closed) هتتحدد في الباك إند نفسه لما يوصله
+         workflowStatus = "out_for_delivery" — هنا بنعكسها محليًا فورًا
+         كمان عشان الواجهة تتحدث فورًا من غير ما تستنى المزامنة */
+      if (workflowStatus === "out_for_delivery") {
+        o.status = "closed";
+      }
       if (workflowStatus === "delivered") {
         o.deliveredAt = new Date().toISOString();
       }
@@ -635,7 +655,8 @@ window.App = window.App || {};
       save(); emit();
       saveOrderBackend(o, timelineText, timelineColor);
 
-      /* إرسال إشعار الشحن إلى n8n عند خروج الطلب للتوصيل فعليًا */
+      /* إرسال إشعار الشحن إلى n8n عند خروج الطلب للتوصيل فعليًا
+         (بس لتوصيل بيانات الشحن لشركة التوصيل — مش لقفل أي session) */
       if (workflowStatus === "out_for_delivery") {
         App.webhook.sendStatusUpdate(o).then((ok) => {
           if (!ok) {
@@ -672,7 +693,7 @@ window.App = window.App || {};
         const d = new Date(o.createdAt);
         if (sameDay(d, now)) s.today++;
         if (sameMonth(d, now)) s.month++;
-        if (o.status === "accepted") { s.accepted++; s.revenue += o.price || 0; }
+        if (o.status === "accepted" || o.status === "closed") { s.accepted++; s.revenue += o.price || 0; }
         else if (o.status === "partial") { s.partial++; s.revenue += o.price || 0; }
         else if (o.status === "rejected") s.rejected++;
         else s.pending++;
@@ -682,7 +703,7 @@ window.App = window.App || {};
 
     pharmacyStats() {
       return this.getPharmacists().map((p) => {
-        const accepted = db.orders.filter((o) => o.pharmacyId === p.id && o.status === "accepted");
+        const accepted = db.orders.filter((o) => o.pharmacyId === p.id && (o.status === "accepted" || o.status === "closed"));
         const partial = db.orders.filter((o) => o.pharmacyId === p.id && o.status === "partial");
         const rejected = db.orders.filter((o) => o.rejectedBy && o.rejectedBy.includes(p.id));
         const perf = this.pharmacyPerformance(p);
