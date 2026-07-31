@@ -13,7 +13,7 @@ require("dotenv").config();
 function normalizeStatus(status) {
     if (!status) return "pending";
     const s = String(status).trim().toLowerCase();
-    const allowed = ["pending", "accepted", "partial", "rejected"];
+    const allowed = ["pending", "accepted", "partial", "rejected", "closed"];
     return allowed.includes(s) ? s : "pending";
 }
 
