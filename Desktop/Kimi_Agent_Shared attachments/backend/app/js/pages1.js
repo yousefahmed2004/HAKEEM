@@ -239,10 +239,17 @@ App.pages = App.pages || {};
   function renderAdminOrdersList() {
     const all = S().getOrders();
     const counts = { all: all.length, pending: 0, accepted: 0, partial: 0, rejected: 0 };
-    all.forEach((o) => counts[o.status] !== undefined && counts[o.status]++);
+    all.forEach((o) => {
+      const key = o.status === "closed" ? "accepted" : o.status;
+      if (counts[key] !== undefined) counts[key]++;
+    });
     document.querySelectorAll("[data-count]").forEach((el) => { el.textContent = fmtNum(counts[el.dataset.count]); });
 
-    let list = ordersFilter.tab === "all" ? all : all.filter((o) => o.status === ordersFilter.tab);
+    let list = ordersFilter.tab === "all"
+      ? all
+      : ordersFilter.tab === "accepted"
+        ? all.filter((o) => o.status === "accepted" || o.status === "closed")
+        : all.filter((o) => o.status === ordersFilter.tab);
     const q = ordersFilter.q.trim().toLowerCase();
     if (q) list = list.filter((o) =>
       o.id.includes(q) || o.customerName.toLowerCase().includes(q) ||
@@ -443,8 +450,10 @@ App.pages = App.pages || {};
     const st = STATUS[o.status] || STATUS.pending;
     const canAct = user.role === "pharmacist" && o.status === "pending" && !o.rejectedBy.includes(user.id);
     const canConfirmReceipt = user.role === "pharmacist" && o.status === "accepted" && o.executionPending && o.pharmacyId === user.id;
-    const canManageWorkflow = user.role === "pharmacist" && o.status === "accepted" && o.pharmacyId === user.id;
-    const canShowPhone = user.role === "admin" || (o.status === "accepted" && o.pharmacyId === user.id);
+    /* بعد التعديل: "closed" هي امتداد طبيعي لـ "accepted" (الطلب خرج للتوصيل واتقفل)
+       فلازم الصيدلي المسؤول عنه يفضل يقدر يشوف تفاصيله ويكمل خطوة "تم التسليم" لو لسه ماوصلتش */
+    const canManageWorkflow = user.role === "pharmacist" && (o.status === "accepted" || o.status === "closed") && o.pharmacyId === user.id;
+    const canShowPhone = user.role === "admin" || ((o.status === "accepted" || o.status === "closed") && o.pharmacyId === user.id);
     const capacityReached = user.role === "pharmacist" && o.status === "pending" && !S().canAcceptOrder(user);
     const workflowStateMap = { awaiting_receipt: "في انتظار تأكيد الاستلام", received: "تم استلام الطلب", preparing: "جاري التجهيز", ready: "جاهز للتوصيل", out_for_delivery: "خرج للتوصيل", delivered: "تم التسليم", cancelled: "إلغاء الطلب" };
     const executionHint = o.executionPending && o.executionDeadline
@@ -455,7 +464,7 @@ App.pages = App.pages || {};
           ? "انتهت مهلة التنفيذ — عاد الطلب إلى قائمة الانتظار"
           : "";
 
-    const medsSection = o.status === "partial" || o.status === "accepted"
+    const medsSection = o.status === "partial" || o.status === "accepted" || o.status === "closed"
       ? `
         <div style="margin-top:6px">
           <div class="bold" style="margin-bottom:9px;color:#047857">${icon("checkCircle", 15)} الأدوية المتوفرة (${o.availableItems.length})</div>
@@ -726,7 +735,8 @@ App.pages = App.pages || {};
 
       /* أزرار تغيير حالة سير العمل (استلام / تجهيز / جاهز / خرج للتوصيل / تسليم / إلغاء)
          — ترتيب إجباري: خطوة واحدة تالية فقط متاحة، وكل خطوة تتطلب تأكيدًا نهائيًا
-         — عند "خرج للتوصيل": لو الطلب مقبول بالكامل بدون سعر، تُفتح نافذة السعر أولًا */
+         — عند "خرج للتوصيل": لو الطلب مقبول بالكامل بدون سعر، تُفتح نافذة السعر أولًا
+         — نفس اللحظة دي الطلب بيتقفل تلقائيًا (status = "closed") من الباك إند */
       document.querySelectorAll("[data-workflow]").forEach((btn) => {
         btn.onclick = () => {
           const key = btn.dataset.workflow;
