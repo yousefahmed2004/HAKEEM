@@ -100,6 +100,11 @@ window.App = window.App || {};
     accepted: { label: "مقبول", badge: "badge-accepted", color: "#10b981", icon: "checkCircle" },
     partial: { label: "تنفيذ جزئي", badge: "badge-partial", color: "#0ea5e9", icon: "split" },
     rejected: { label: "مرفوض", badge: "badge-rejected", color: "#ef4444", icon: "xCircle" },
+    /* "closed" امتداد طبيعي لـ "accepted" — الباك إند بيحوّل الطلب لها أوتوماتيك
+       لحظة "خرج للتوصيل"، فلازم تتعامل معاها كحالة منفصلة هنا وإلا هتقع في
+       الـ fallback (STATUS.pending) وتظهر "قيد الانتظار" غلط لطلب فعليًا اتقبل
+       وبيتنفذ/بيتشحن. */
+    closed: { label: "قيد التوصيل", badge: "badge-accepted", color: "#10b981", icon: "checkCircle" },
   };
 
   function statusBadge(status) {
