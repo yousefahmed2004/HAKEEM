@@ -23,6 +23,7 @@ App.pages = App.pages || {};
             <div>
               <div class="cell-main">${esc(p.pharmacyName)}</div>
               <div class="cell-sub">${esc(p.name)}</div>
+              ${p.address ? `<div class="small muted" style="margin-top:4px;display:flex;align-items:center;gap:4px">${icon("pin", 12)} ${esc(p.address)}</div>` : ""}
               <div class="small muted" style="margin-top:4px">السعة: ${Number(p.maxActiveOrders || S().getPharmacyCapacity(p))}</div>
             </div>
           </div>
@@ -102,8 +103,10 @@ App.pages = App.pages || {};
             <input class="input mono" id="pf-password" type="text" placeholder="••••••" dir="ltr" style="text-align:right" /></div>
           <div class="field" style="margin:0"><label>الحد الأقصى للطلبات النشطة</label>
             <input class="input" id="pf-capacity" type="number" min="1" step="1" placeholder="2" value="${isEdit ? esc(String(existing.maxActiveOrders || S().getPharmacyCapacity(existing))) : "2"}" /></div>
-          <div class="field" style="margin:0;grid-column:span 2"><label>رقم الهاتف</label>
+          <div class="field" style="margin:0"><label>رقم الهاتف</label>
             <input class="input mono" id="pf-phone" placeholder="01000000000" dir="ltr" style="text-align:right" value="${isEdit ? esc(existing.phone || "") : ""}" /></div>
+          <div class="field" style="margin:0;grid-column:span 2"><label>عنوان الصيدلية (نقطة الاستلام لشركة الشحن)</label>
+            <input class="input" id="pf-address" placeholder="مثال: شارع الجامعة، بجوار كنتاكي، الدقي" value="${isEdit ? esc(existing.address || "") : ""}" /></div>
         </div>
         <div id="pf-error" class="login-error" style="margin:14px 0 0"></div>`,
       footer: `
@@ -115,7 +118,7 @@ App.pages = App.pages || {};
           const v = (id) => overlay.querySelector(id).value.trim();
           const err = overlay.querySelector("#pf-error");
           const fail = (m) => { err.textContent = m; err.classList.add("show"); };
-          const name = v("#pf-name"), pharmacyName = v("#pf-pharmacy"), username = v("#pf-username"), password = v("#pf-password"), phone = v("#pf-phone"), maxActiveOrders = Number(overlay.querySelector("#pf-capacity").value || 2);
+          const name = v("#pf-name"), pharmacyName = v("#pf-pharmacy"), username = v("#pf-username"), password = v("#pf-password"), phone = v("#pf-phone"), address = v("#pf-address"), maxActiveOrders = Number(overlay.querySelector("#pf-capacity").value || 2);
 
           if (!name || !pharmacyName || !username) return fail("املأ جميع الحقول المطلوبة");
           if (!/^[a-zA-Z0-9_.-]{3,}$/.test(username)) return fail("اسم المستخدم: 3 أحرف إنجليزية أو أرقام على الأقل");
@@ -125,7 +128,7 @@ App.pages = App.pages || {};
           if (phone && !/^01[0-9]{9}$/.test(phone)) return fail("رقم الهاتف غير صحيح (مثال: 01012345678)");
 
           if (isEdit) {
-            const patch = { name, pharmacyName, username, phone, maxActiveOrders };
+            const patch = { name, pharmacyName, username, phone, address, maxActiveOrders };
             if (password) {
               if (password.length < 6) return fail("كلمة المرور: 6 أحرف على الأقل");
               patch.password = password;
@@ -133,7 +136,7 @@ App.pages = App.pages || {};
             await S().updatePharmacist(existing.id, patch);
             toast("تم حفظ التعديلات", pharmacyName, "success");
           } else {
-            await S().addPharmacist({ name, pharmacyName, username, password, phone, maxActiveOrders });
+            await S().addPharmacist({ name, pharmacyName, username, password, phone, address, maxActiveOrders });
             toast("تمت إضافة الصيدلي بنجاح", `${pharmacyName} يمكنه الآن تسجيل الدخول`, "success");
           }
           close();
