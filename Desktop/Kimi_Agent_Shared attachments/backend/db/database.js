@@ -95,6 +95,7 @@ const initializeDatabase = async () => {
                 title VARCHAR(255) DEFAULT NULL,
                 phone VARCHAR(50) DEFAULT NULL,
                 "pharmacyName" VARCHAR(255) DEFAULT NULL,
+                address VARCHAR(500) DEFAULT NULL,
                 status VARCHAR(50) DEFAULT 'active',
                 color VARCHAR(50) DEFAULT NULL,
                 "maxActiveOrders" INT DEFAULT 3,
@@ -103,8 +104,9 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // 1.5. --- ensure maxActiveOrders column exists (for pre-existing users tables) ---
+        // 1.5. --- ensure maxActiveOrders / address columns exist (for pre-existing users tables) ---
         await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "maxActiveOrders" INT DEFAULT 3`);
+        await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS address VARCHAR(500) DEFAULT NULL`);
 
         // 2. --- orders table ---
         await run(`
@@ -238,10 +240,10 @@ const seedDatabase = async () => {
 
         for (const user of users) {
             await run(
-                `INSERT INTO users (id, username, password, role, name, title, phone, "pharmacyName", status, color, "createdAt", "updatedAt")
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                `INSERT INTO users (id, username, password, role, name, title, phone, "pharmacyName", address, status, color, "createdAt", "updatedAt")
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                  ON CONFLICT (id) DO NOTHING`,
-                [user.id, user.username, user.password, user.role, user.name, user.title || null, user.phone, user.pharmacyName || null, user.status, user.color, toDbDateTime(), toDbDateTime()]
+                [user.id, user.username, user.password, user.role, user.name, user.title || null, user.phone, user.pharmacyName || null, user.address || null, user.status, user.color, toDbDateTime(), toDbDateTime()]
             );
         }
 
