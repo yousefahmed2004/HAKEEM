@@ -270,6 +270,12 @@ window.App = window.App || {};
     else updateBadges();
   }
 
+  /* 🔔 تعريض notifyNewOrder لـ store.js عشان يشغّل نفس صوت/تنبيه المحاكاة
+     لحظة ما يكتشف طلب جديد وصل فعليًا (من n8n/الشات بوت) عبر syncOrders */
+  App.notifications = {
+    orderArrived(o) { notifyNewOrder(o, false); },
+  };
+
   App.simulation = {
     fireOnce(manual) {
       const o = App.webhook.receiveOrder(App.store.buildRandomOrder());
