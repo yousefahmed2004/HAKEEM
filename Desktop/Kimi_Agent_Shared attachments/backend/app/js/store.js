@@ -188,6 +188,12 @@ window.App = window.App || {};
   const listeners = { change: [] };
   let lastOrdersJson = "";
 
+  /* 🔔 تتبّع IDs الطلبات المعروفة عشان نكتشف أي طلب "جديد فعليًا" وصل من
+     الباك إند (سواء من n8n مباشرة أو من أي مصدر) ونشغّل له نفس صوت/تنبيه
+     المحاكاة. null = لسه معملناش أول تحميل، عشان محدش يتنبّه لكل الطلبات
+     الموجودة بالفعل لحظة فتح الصفحة. */
+  let knownOrderIds = null;
+
   /* ملاحظة هامة:
      مهلة التنفيذ (5 دقايق) بتتحسم نهائيًا في السيرفر (orders.js -> expireOverdueOrders)
      مش في المتصفح، عشان لو فاتح أكتر من تاب (أدمن / صيدلي تاني) محدش يرجّع
@@ -215,6 +221,28 @@ window.App = window.App || {};
           if (!o.availableItems) o.availableItems = [];
           if (!o.unavailableItems) o.unavailableItems = [];
         });
+
+        /* ============================================================
+           🔔 اكتشاف الطلبات الجديدة اللي وصلت فعليًا (من n8n/الشات بوت)
+           ------------------------------------------------------------
+           قبل كده كانت الدالة دي بتستبدل db.orders بصمت من غير ما تنبّه
+           حد إن فيه طلب جديد وصل على أرض الواقع؛ الصوت والتنبيه كانا
+           بيشتغلوا بس مع "محاكاة الطلبات" اليدوية (App.simulation.fireOnce)
+           لأنها هي الوحيدة اللي كانت بتنادي notifyNewOrder مباشرة.
+           هنا بنقارن IDs الطلبات الجديدة بالمعروفة، ولو لقينا IDs جديدة
+           (بعد أول تحميل للصفحة) بننادي App.notifications.orderArrived
+           لكل واحد منها عشان يشغّل نفس صوت/تنبيه المحاكاة بالظبط. */
+        const incomingIds = new Set(res.orders.map((o) => o.id));
+        if (knownOrderIds !== null) {
+          const newlyArrived = res.orders.filter((o) => !knownOrderIds.has(o.id));
+          newlyArrived.forEach((o) => {
+            if (App.notifications && typeof App.notifications.orderArrived === "function") {
+              App.notifications.orderArrived(o);
+            }
+          });
+        }
+        knownOrderIds = incomingIds;
+
         const currentJson = JSON.stringify(res.orders);
         if (currentJson !== lastOrdersJson) {
           db.orders = res.orders;
@@ -680,6 +708,11 @@ window.App = window.App || {};
     /* استقبال طلب جديد (يُستدعى من Webhook أو المحاكاة) */
     addOrder(order) {
       db.orders.push(order);
+      /* نسجّل الـ ID فورًا في الطلبات المعروفة عشان أول Sync بعد كده
+         متعتبروش "طلب جديد وصل" وتنبّه عليه مرة تانية زيادة عن اللازم
+         (هو أصلاً اتنبّه عليه محليًا لحظة إضافته من app.js) */
+      if (knownOrderIds) knownOrderIds.add(order.id);
+      else knownOrderIds = new Set([order.id]);
       save(); emit();
       App.api.createOrder(order).then(() => {
         syncOrders();
