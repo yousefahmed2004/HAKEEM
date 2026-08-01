@@ -75,10 +75,12 @@ window.App = window.App || {};
               <div class="page-title" id="tb-title">لوحة التحكم</div>
               <div class="page-crumb" id="tb-crumb"></div>
             </div>
-            
+
+            <div class="dropdown">
               <button class="icon-btn bell-btn" id="btn-bell">${icon("bell", 19)}<span class="ping hidden" id="bell-ping"></span></button>
               <div class="dropdown-menu notif-menu hidden" id="bell-menu"></div>
             </div>
+
             <div class="dropdown">
               <button class="icon-btn" id="btn-user" style="width:auto;padding:0;border:none">${avatar(user.role === "pharmacist" ? user.pharmacyName : user.name, user.color, "avatar-sm")}</button>
               <div class="dropdown-menu hidden" id="user-menu" style="min-width:210px">
@@ -238,7 +240,7 @@ window.App = window.App || {};
     const count = user.role === "admin" ? S().pendingCount() : S().poolFor(user.id).length;
     const nav = document.getElementById("nav-orders-count");
     const ping = document.getElementById("bell-ping");
-    if (nav) nav.textContent = count; 
+    if (nav) nav.textContent = count;
     if (ping) ping.textContent = count;
     if (nav) nav.classList.toggle("hidden", count === 0);
     if (ping) ping.classList.toggle("hidden", count === 0);
