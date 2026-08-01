@@ -104,7 +104,7 @@ window.App = window.App || {};
        لحظة "خرج للتوصيل"، فلازم تتعامل معاها كحالة منفصلة هنا وإلا هتقع في
        الـ fallback (STATUS.pending) وتظهر "قيد الانتظار" غلط لطلب فعليًا اتقبل
        وبيتنفذ/بيتشحن. */
-    closed: { label: "قيد التوصيل", badge: "badge-accepted", color: "#10b981", icon: "checkCircle" },
+    closed: { label: "تم التوصيل", badge: "badge-accepted", color: "#10b981", icon: "checkCircle" },
   };
 
   function statusBadge(status) {
