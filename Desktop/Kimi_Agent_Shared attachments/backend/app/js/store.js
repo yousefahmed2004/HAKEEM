@@ -420,6 +420,7 @@ window.App = window.App || {};
         name: data.name.trim(),
         pharmacyName: data.pharmacyName.trim(),
         phone: data.phone || "",
+        address: data.address || "",
         maxActiveOrders: Number(data.maxActiveOrders || 2),
       };
 
@@ -441,7 +442,7 @@ window.App = window.App || {};
         id: "u-ph" + Date.now().toString(36),
         username: payload.username, password: payload.password,
         role: "pharmacist", name: payload.name,
-        pharmacyName: payload.pharmacyName, phone: payload.phone,
+        pharmacyName: payload.pharmacyName, phone: payload.phone, address: payload.address,
         status: "active", color: AVATAR_COLORS[db.users.length % AVATAR_COLORS.length],
         createdAt: new Date().toISOString(), maxActiveOrders: payload.maxActiveOrders || 2,
       };
