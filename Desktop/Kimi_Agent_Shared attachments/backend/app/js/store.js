@@ -583,7 +583,8 @@ window.App = window.App || {};
     confirmReceiptOrder(id, user) {
       const o = this.getOrder(id);
       const pharmacist = db.users.find((u) => u.id === user.id) || user;
-      if (!o || o.status !== "accepted" || o.pharmacyId !== user.id) return null;
+      if (!o || !(o.status === "accepted" || o.status === "closed") || o.pharmacyId !== user.id) return null;
+       if (["delivered", "cancelled"].includes(o.workflowStatus)) return null; // الخطوة خلصت خلاص، مينفعش نرجع نغيرها
       ensureExecutionProfile(pharmacist);
       pharmacist.executionPoints = Math.min(100, pharmacist.executionPoints + 10);
       pharmacist.executionStats.executed += 1;
