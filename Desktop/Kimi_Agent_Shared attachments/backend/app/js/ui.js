@@ -191,10 +191,50 @@ window.App = window.App || {};
       </div>`;
   }
 
-  /* ---------- صوت تنبيه خفيف (Web Audio) ---------- */
-  function beep() {
+  /* ---------- صوت تنبيه خفيف (Web Audio) ----------
+     ⚠️ إصلاح مشكلة "الصوت مش بيوصل": المتصفحات (Chrome خصوصًا) بتخلي أي
+     AudioContext جديد يبدأ في حالة "suspended" لحد ما يحصل تفاعل مباشر
+     من المستخدم (click/tap/keydown) معاه. زرار "محاكاة طلب" كان شغال لأنه
+     نفسه حدث كليك، لكن الطلبات الحقيقية بتوصل من setInterval في الخلفية
+     من غير أي تفاعل، فالـ Context بيفضل معلّق والصوت ما بيتشغلش — وكان
+     بيتبلع بصمت هنا (catch فاضي) فمكناش شايفين المشكلة حتى في الكونسول.
+
+     الحل:
+     1) Context واحد ثابت (مش واحد جديد كل نداء beep).
+     2) بيتفك (resume) أول ما يحصل أي تفاعل من المستخدم في أي حتة بالصفحة.
+     3) نتأكد نعمل resume() قبل كل صوت لو لسه معلّق.
+     4) بنطبع تحذير حقيقي في الكونسول بدل ما نبلع الخطأ بصمت — لو شفت
+        رسالة "[Audio] المتصفح مانع تشغيل الصوت تلقائيًا" في الكونسول،
+        يبقى المطلوب إنك تعمل أي كليك واحد في الصفحة (زي فتح أي قايمة أو
+        الضغط في أي مكان فاضي) وبعدها الصوت هيشتغل عادي لباقي الجلسة. */
+  let sharedAudioCtx = null;
+
+  function getAudioCtx() {
+    if (!sharedAudioCtx) {
+      try {
+        sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (e) {
+        console.warn("[Audio] تعذر إنشاء AudioContext:", e);
+        return null;
+      }
+    }
+    return sharedAudioCtx;
+  }
+
+  function unlockAudioCtx() {
+    const ctx = getAudioCtx();
+    if (ctx && ctx.state === "suspended") {
+      ctx.resume().catch(() => { /* هيتحاول تاني عند أول beep() */ });
+    }
+  }
+  /* أول تفاعل حقيقي من المستخدم (كليك/تاتش/زرار كيبورد) في أي مكان
+     بالصفحة بيفك قفل الصوت خلاص لباقي عمر الصفحة */
+  ["click", "touchstart", "keydown"].forEach((evt) => {
+    document.addEventListener(evt, unlockAudioCtx, { once: true, passive: true });
+  });
+
+  function playBeepTone(ctx) {
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const notes = [880, 1174.66];
       notes.forEach((freq, i) => {
         const o = ctx.createOscillator();
@@ -207,8 +247,21 @@ window.App = window.App || {};
         o.start(ctx.currentTime + i * 0.12);
         o.stop(ctx.currentTime + i * 0.12 + 0.4);
       });
-      setTimeout(() => ctx.close(), 900);
-    } catch (e) { /* الصوت غير متاح */ }
+    } catch (e) {
+      console.warn("[Audio] تعذر تشغيل نغمة التنبيه:", e);
+    }
+  }
+
+  function beep() {
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === "suspended") {
+      ctx.resume()
+        .then(() => playBeepTone(ctx))
+        .catch((e) => console.warn("[Audio] المتصفح مانع تشغيل الصوت تلقائيًا (لازم كليك واحد في الصفحة أولًا):", e));
+    } else {
+      playBeepTone(ctx);
+    }
   }
 
   App.ui = {
