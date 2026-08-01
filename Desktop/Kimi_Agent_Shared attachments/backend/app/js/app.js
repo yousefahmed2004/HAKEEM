@@ -71,7 +71,7 @@ window.App = window.App || {};
         <div class="main">
           <header class="topbar">
             <button class="icon-btn hamburger" id="btn-menu">${icon("menu", 20)}</button>
-            <div>
+            <div style="flex:1;min-width:0">
               <div class="page-title" id="tb-title">لوحة التحكم</div>
               <div class="page-crumb" id="tb-crumb"></div>
             </div>
