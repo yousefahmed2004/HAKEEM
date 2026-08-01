@@ -44,7 +44,7 @@ window.App = window.App || {};
         <div class="sidebar-overlay" id="sb-overlay"></div>
         <aside class="sidebar" id="sidebar">
           <div class="sidebar-logo">
-            <div class="logo-mark">${icon("pill", 24)}</div>
+            <div class="logo-mark"><img src="assets/logo.png" alt="HAKEEM" style="width:100%;height:100%;object-fit:contain;border-radius:inherit" /></div>
             <div>
               <div class="name">HAKEEM</div>
               <div class="sub">لوحة تحكم الطلبات</div>
