@@ -75,9 +75,7 @@ window.App = window.App || {};
               <div class="page-title" id="tb-title">لوحة التحكم</div>
               <div class="page-crumb" id="tb-crumb"></div>
             </div>
-            <div class="topbar-spacer"></div>
-            <div class="live-dot" id="live-dot"><span class="txt">محاكاة مباشرة</span></div>
-            <div class="dropdown">
+            
               <button class="icon-btn bell-btn" id="btn-bell">${icon("bell", 19)}<span class="ping hidden" id="bell-ping"></span></button>
               <div class="dropdown-menu notif-menu hidden" id="bell-menu"></div>
             </div>
