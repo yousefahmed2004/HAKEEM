@@ -414,6 +414,11 @@ router.post("/orders", async (req, res) => {
     (زي n8n) تعمل ده. ده كمان بيقفل الـ WhatsApp session بتاعة
     العميل في جدول customers في نفس اللحظة، عشان لو بعت رسالة
     تانية بعدها الشات بوت يبدأ معاه طلب جديد مباشرة.
+
+    ⚠️ كمان بيصفّر ذاكرة الشات بتاعة الـ AI Agent (n8n_chat_histories)
+    الخاصة بجلسة العميل ده، عشان محادثة الأوردر القديم متأثرش على
+    أي أوردر جديد هيبدأه بعد كده (نفس فكرة نود "close session" اللي
+    كانت في n8n، بس هنا بقى مركزي في الباك إند + بيمسح الميموري كمان).
     ============================================================ */
 router.put("/orders/:id", async (req, res) => {
     try {
@@ -471,8 +476,16 @@ router.put("/orders/:id", async (req, res) => {
                     `UPDATE customers SET session_status = 'CLOSED' WHERE phone_number = $1`,
                     [updated.phone]
                 );
+
+                // 🧠 تصفير ذاكرة الشات بتاعة الـ AI عشان محادثة الأوردر القديم متأثرش على الجديد
+                const digitsOnly = updated.phone.replace(/\D/g, "");
+                const remoteJidNumber = "20" + digitsOnly.slice(1); // بيرجع الرقم لصيغة الواتساب (201055512301)
+                await db.run(
+                    `DELETE FROM n8n_chat_histories WHERE session_id LIKE $1`,
+                    [`%${remoteJidNumber}%`]
+                );
             } catch (sessErr) {
-                console.error("❌ خطأ في إغلاق جلسة العميل:", sessErr.message);
+                console.error("❌ خطأ في إغلاق جلسة العميل / تصفير الذاكرة:", sessErr.message);
             }
         }
 
