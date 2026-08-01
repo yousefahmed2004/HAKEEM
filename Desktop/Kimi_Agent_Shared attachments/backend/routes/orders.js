@@ -169,11 +169,56 @@ async function expireOverdueOrders() {
 }
 
 /* ============================================================
+    ⏱️ (جديد) تنظيف الطلبات اللي فضلت "pending" فترة طويلة من غير
+    ما أي صيدلي ياخد فيها قرار (قبول/رفض/تنفيذ جزئي).
+    ------------------------------------------------------------
+    ⚠️ ده الإصلاح الأساسي لمشكلة "عندك أوردر سابق" اللي بتظهر
+    للعميل حتى بعد ما يقفل آخر أوردر بنجاح (delivered/closed).
+    السبب: استعلام "هل عندك أوردر نشط؟" في n8n (check Customer11)
+    بيعمل:
+        WHERE phone = ... AND status NOT IN ('delivered','closed')
+        ORDER BY id DESC LIMIT 1
+    وده بيرجّع أقدم/أي أوردر "pending" لسه عالق من غير قرار — حتى
+    لو فيه أوردر أحدث منه اتقفل فعلاً — لأنه بيرتب DESC على مجموعة
+    الأوردرات الغير مقفولة بس، مش على كل الأوردرات.
+    فلازم أي أوردر "pending" يفضل عالق أكتر من مدة محددة (30 دقيقة
+    افتراضيًا) يترفض تلقائيًا عشان محدش يفضل يقفل رقم العميل للأبد.
+    ============================================================ */
+const STALE_PENDING_MINUTES = Number(process.env.STALE_PENDING_MINUTES || 30);
+
+async function expireStalePendingOrders() {
+    try {
+        const expired = await db.all(`
+            UPDATE orders
+            SET status = 'rejected',
+                "updatedAt" = NOW()
+            WHERE status = 'pending'
+              AND "createdAt" < NOW() - INTERVAL '${STALE_PENDING_MINUTES} minutes'
+            RETURNING id
+        `);
+
+        for (const row of expired) {
+            await db.run(
+                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [row.id, `انتهت صلاحية الطلب تلقائيًا بعد ${STALE_PENDING_MINUTES} دقيقة بدون رد من أي صيدلية`, "#ef4444"]
+            );
+        }
+
+        if (expired.length) {
+            console.log(`⏱️ تم رفض ${expired.length} طلب/طلبات "pending" عالقة تلقائيًا (بدون رد صيدلية)`);
+        }
+    } catch (err) {
+        console.error("❌ خطأ في تنظيف الطلبات المعلقة العالقة:", err.message);
+    }
+}
+
+/* ============================================================
     جلب جميع الطلبات
     ============================================================ */
 router.get("/orders", async (req, res) => {
     try {
         await expireOverdueOrders();
+        await expireStalePendingOrders();
 
         const { status } = req.query;
         let query = `
@@ -242,6 +287,7 @@ router.get("/orders", async (req, res) => {
 router.get("/orders/:id", async (req, res) => {
     try {
         await expireOverdueOrders();
+        await expireStalePendingOrders();
 
         const { id } = req.params;
         const query = `
@@ -493,6 +539,7 @@ router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
 router.get("/orders-stats", async (req, res) => {
     try {
         await expireOverdueOrders();
+        await expireStalePendingOrders();
 
         const stats = await db.get(`
             SELECT 
