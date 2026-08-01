@@ -615,13 +615,17 @@ window.App = window.App || {};
          الفرونت إند هنا بس بيبعت workflowStatus ويستنى رد الباك إند
          (updateOrderWorkflowStatus / saveOrderBackend) اللي هيرجّع
          الحالة النهائية "closed" في المزامنة التالية (syncOrders).
+       — ⚠️ (إصلاح) بعد "خرج للتوصيل" الطلب بيبقى status = "closed" محليًا،
+         فلازم الشرط هنا يقبل "accepted" و"closed" مع بعض بالظبط زي
+         confirmReceiptOrder فوق، وإلا أي خطوة تالية (زي "تم التسليم")
+         هترفض بمجرد ما الطلب يتقفل عند "خرج للتوصيل".
        — عند "خرج للتوصيل" يتم أيضًا إرسال إشعار الشحن إلى n8n عبر البروكسي
          (ده لسه محتاجينه بس عشان يوصل السعر والعنوان لشركة الشحن، مش
          عشان يقفل السيشن — القفل بقى مسؤولية الباك إند وحده)
        ============================================================ */
     updateOrderWorkflowStatus(id, user, workflowStatus, price) {
       const o = this.getOrder(id);
-      if (!o || o.status !== "accepted" || o.pharmacyId !== user.id) return null;
+      if (!o || !(o.status === "accepted" || o.status === "closed") || o.pharmacyId !== user.id) return null;
       const workflowLabels = {
         received: "تم استلام الطلب",
         preparing: "جاري التجهيز",
