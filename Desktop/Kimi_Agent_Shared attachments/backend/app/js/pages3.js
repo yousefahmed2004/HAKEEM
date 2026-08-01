@@ -67,7 +67,7 @@ App.pages = App.pages || {};
       <div class="login-panel">
         <div class="login-box">
           <div class="logo-row">
-            <div class="logo-mark">${icon("pill", 25)}</div>
+            <div class="logo-mark"><img src="assets/logo.png" alt="HAKEEM" style="width:100%;height:100%;object-fit:contain;border-radius:inherit" /></div>
             <div>
               <div style="font-weight:900;font-size:20px">HAKEEM</div>
               <div class="small muted">حكيم • Pharmacy Management System</div>
