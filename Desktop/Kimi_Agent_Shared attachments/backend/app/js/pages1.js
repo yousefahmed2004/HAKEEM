@@ -658,6 +658,22 @@ App.pages = App.pages || {};
     });
   }
 
+  /* ============================================================
+     نافذة تكبير صورة الروشتة — تُفتح عند الضغط على الصورة
+     ============================================================ */
+  function openPrescriptionImageModal(imgSrc) {
+    modal({
+      title: "صورة الروشتة",
+      icon: "image",
+      size: "modal-lg",
+      body: `
+        <div style="text-align:center">
+          <img src="${esc(imgSrc)}" alt="روشتة العميل" style="max-width:100%;max-height:78vh;object-fit:contain;border-radius:14px" />
+        </div>`,
+      footer: `<a class="btn btn-soft" href="${esc(imgSrc)}" target="_blank" rel="noopener">${icon("link", 16)} فتح في تبويب جديد</a>`,
+    });
+  }
+
   App.pages.orderDetails = {
     title: "تفاصيل الطلب",
     crumb: "عرض وإدارة الطلب",
@@ -671,6 +687,16 @@ App.pages = App.pages || {};
       if (!o) return;
 
       const refresh = () => App.router.refresh();
+
+      /* فتح/تكبير صورة الروشتة عند الضغط عليها */
+      const rxView = document.getElementById("rx-view");
+      if (rxView) {
+        rxView.onclick = () => {
+          const img = rxView.querySelector("img");
+          if (!img || !img.getAttribute("src")) return;
+          openPrescriptionImageModal(img.getAttribute("src"));
+        };
+      }
 
       /* قبول الطلب بالكامل — يتطلب تأكيدًا، ولا يمكن التراجع عنه بعد القبول */
       const acceptBtn = document.getElementById("act-accept");
