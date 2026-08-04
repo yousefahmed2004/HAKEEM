@@ -2723,3 +2723,54 @@ img {
     padding: 20px;
   }
 }
+
+
+
+/* لايت بوكس صورة الروشتة */
+.rx-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 34, 56, .55);
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fadeIn .18s ease;
+  cursor: zoom-out;
+}
+
+.rx-lightbox.out {
+  animation: fadeIn .16s ease reverse;
+}
+
+.rx-lightbox img {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px -10px rgba(0, 0, 0, .5);
+  cursor: default;
+  animation: popIn .2s cubic-bezier(.22,.9,.3,1);
+}
+
+.rx-lightbox-close {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .92);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-lg);
+  transition: all .15s;
+}
+
+.rx-lightbox-close:hover {
+  background: #fff;
+  color: var(--red);
+}
