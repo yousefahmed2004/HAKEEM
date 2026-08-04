@@ -659,19 +659,23 @@ App.pages = App.pages || {};
   }
 
   /* ============================================================
-     نافذة تكبير صورة الروشتة — تُفتح عند الضغط على الصورة
+     تكبير صورة الروشتة — لايت بوكس بسيط بدون كارت/عنوان/تعتيم خلفية
+     (الصورة تظهر في نص الشاشة فقط، والضغط في أي مكان أو Esc يقفلها)
      ============================================================ */
   function openPrescriptionImageModal(imgSrc) {
-    modal({
-      title: "صورة الروشتة",
-      icon: "image",
-      size: "modal-lg",
-      body: `
-        <div style="text-align:center">
-          <img src="${esc(imgSrc)}" alt="روشتة العميل" style="max-width:100%;max-height:78vh;object-fit:contain;border-radius:14px" />
-        </div>`,
-      footer: `<a class="btn btn-soft" href="${esc(imgSrc)}" target="_blank" rel="noopener">${icon("link", 16)} فتح في تبويب جديد</a>`,
-    });
+    const root = document.getElementById("modal-root");
+    const overlay = document.createElement("div");
+    overlay.className = "rx-lightbox";
+    overlay.innerHTML = `
+      <button class="rx-lightbox-close" aria-label="إغلاق">${icon("x", 22)}</button>
+      <img src="${esc(imgSrc)}" alt="روشتة العميل" />`;
+    root.appendChild(overlay);
+
+    const close = () => { overlay.classList.add("out"); setTimeout(() => overlay.remove(), 160); };
+    overlay.querySelector(".rx-lightbox-close").onclick = close;
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+    document.addEventListener("keydown", onKey);
   }
 
   App.pages.orderDetails = {
