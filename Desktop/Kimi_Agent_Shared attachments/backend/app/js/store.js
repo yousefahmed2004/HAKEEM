@@ -40,6 +40,29 @@ window.App = window.App || {};
 
   const AVATAR_COLORS = ["#0ea5e9", "#2563eb", "#10b981", "#8b5cf6", "#f59e0b", "#ef4444", "#06b6d4", "#ec4899"];
 
+  /* ============================================================
+     🆕 دالة مساعدة موحّدة لاستخراج اسم الدواء من عنصر items
+     ------------------------------------------------------------
+     items ممكن يوصلوا بشكلين:
+     - سترينج قديم (بيانات تجريبية/طلبات قديمة): "Panadol" أو "Fucidin - علبة"
+     - object جديد (من الباك إند بعد الفصل): { name: "Fucidin", unit: "علبة" }
+     الدالة دي بترجّع دايمًا اسم الدواء نضيف من غير أي معلومة عبوة،
+     عشان أي مكان بيجمّع أو يبحث في الأدوية (زي medicineStats) يشتغل
+     صح بغض النظر عن شكل البيانات القادم.
+     ============================================================ */
+  function medicineName(m) {
+    if (m && typeof m === "object") return String(m.name || "").trim();
+    const str = String(m || "").trim();
+    // توافق رجعي: لو لسه سترينج قديم ملزّق زي "Fucidin - علبة" افصل الاسم بس
+    const parts = str.split(/\s*-\s*/);
+    if (parts.length > 1) {
+      const lastPart = parts[parts.length - 1].toLowerCase();
+      const unitHints = ["علبة", "علب", "شريط", "شرائط", "أمبولة", "أمبولات", "فيال", "زجاجة", "أنبوبة", "كيس", "قرص", "كبسولة", "بخاخ", "قطارة"];
+      if (unitHints.some((k) => lastPart.includes(k))) return parts.slice(0, -1).join(" - ").trim();
+    }
+    return str;
+  }
+
   /* ---------- البذر الأولي ---------- */
   function seed() {
     const rnd = mulberry32(20260717);
@@ -782,11 +805,24 @@ if (workflowStatus === "cancelled") {
       return { points: profile.executionPoints || 100, rate, badge };
     },
 
+    /* ============================================================
+       🆕 medicineStats() — بترجّع اسم الدواء "منفصل" عن نوع العبوة
+       ------------------------------------------------------------
+       بتستخدم medicineName() فوق عشان تجمع كل الأصناف اللي نفس
+       الاسم تحت مفتاح واحد بغض النظر عن العبوة (علبة/شريط/...)،
+       سواء كانت items جايه كـ objects {name, unit} من الباك إند
+       الجديد أو سترينج قديم من بيانات تجريبية سابقة.
+       ============================================================ */
     medicineStats() {
       const counts = {};
-      db.orders.forEach((o) => o.items.forEach((m) => { counts[m] = (counts[m] || 0) + 1; }));
+      db.orders.forEach((o) => o.items.forEach((m) => {
+        const name = medicineName(m);
+        if (!name) return;
+        counts[name] = (counts[name] || 0) + 1;
+      }));
       return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
     },
+    medicineName,
 
     dailySeries(days) {
       const out = [];
