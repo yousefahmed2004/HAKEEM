@@ -677,12 +677,25 @@ window.App = window.App || {};
       /* الحالة النهائية (closed) هتتحدد في الباك إند نفسه لما يوصله
          workflowStatus = "out_for_delivery" — هنا بنعكسها محليًا فورًا
          كمان عشان الواجهة تتحدث فورًا من غير ما تستنى المزامنة */
-      if (workflowStatus === "out_for_delivery") {
-        o.status = "closed";
-      }
-      if (workflowStatus === "delivered") {
-        o.deliveredAt = new Date().toISOString();
-      }
+      o.workflowStatus = workflowStatus;
+if (workflowStatus === "out_for_delivery") {
+  o.status = "closed";
+}
+if (workflowStatus === "delivered") {
+  o.deliveredAt = new Date().toISOString();
+}
+if (workflowStatus === "cancelled") {
+  // يرجع الطلب لقائمة الانتظار عند باقي الصيادلة
+  if (!o.rejectedBy) o.rejectedBy = [];
+  if (!o.rejectedBy.includes(user.id)) o.rejectedBy.push(user.id); // عشان نفس الصيدلي ما ياخدوش تاني فورًا
+  o.status = "pending";
+  o.pharmacyId = null;
+  o.pharmacyName = null;
+  o.workflowStatus = null;
+  o.availableItems = [];
+  o.unavailableItems = [];
+  o.price = null;
+}
       const timelineText = workflowLabels[workflowStatus];
       const timelineColor = workflowStatus === "cancelled" ? "#ef4444" : "#0ea5e9";
       o.timeline.push({ at: new Date().toISOString(), text: timelineText, color: timelineColor });
