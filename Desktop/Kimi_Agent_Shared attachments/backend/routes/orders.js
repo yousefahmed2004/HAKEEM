@@ -17,17 +17,65 @@ function normalizeStatus(status) {
     return allowed.includes(s) ? s : "pending";
 }
 
-/* دالة مساعدة: استخراج قائمة الأدوية أو تفاصيل الروشتة من JSON */
+/* ============================================================
+    🆕 فصل اسم الدواء عن نوع العبوة (علبة / شريط / أمبولة ... إلخ)
+    ------------------------------------------------------------
+    كان بيوصل من الشات بوت سترينج واحد ملزّق زي "Fucidin - علبة"،
+    فكان بيتخزن كده في medicine_name وبالتالي التوب سيرش وإحصائيات
+    الأدوية كانت بتعتبر "Fucidin - علبة" و"Fucidin - شريط" صنفين
+    مختلفين تمامًا بدل ما تتجمع تحت اسم "Fucidin" الحقيقي.
+    الدالة دي بتفصل الاسم عن العبوة وقت الإدخال، فيتخزنوا في عمودين
+    منفصلين (medicine_name / unit) من الأول.
+    ============================================================ */
+const UNIT_KEYWORDS = [
+    "علبة", "علب", "شريط", "شرائط", "أمبولة", "أمبولات", "فيال", "فيالات",
+    "زجاجة", "زجاجات", "أنبوبة", "أنبوبات", "كيس", "أكياس", "قرص", "أقراص",
+    "كبسولة", "كبسولات", "بخاخ", "قطارة", "sachet", "strip", "box", "vial", "bottle", "tube",
+];
+
+function splitMedicineItem(raw) {
+    // Object صريح فيه name/unit أو drug_name جاهزين
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        const rawName = String(raw.name || raw.drug_name || raw.text || "").trim();
+        let unit = String(raw.unit || raw.package || raw.form || "").trim();
+        if (unit) return { name: rawName, unit };
+
+        const parts = rawName.split(/\s*-\s*/);
+        if (parts.length > 1 && UNIT_KEYWORDS.some((k) => parts[parts.length - 1].toLowerCase().includes(k.toLowerCase()))) {
+            unit = parts.pop().trim();
+            return { name: parts.join(" - ").trim(), unit };
+        }
+        return { name: rawName, unit: "" };
+    }
+
+    // سترينج زي "Fucidin - علبة"
+    const str = String(raw || "").trim();
+    if (!str) return { name: "", unit: "" };
+    const parts = str.split(/\s*-\s*/);
+    if (parts.length > 1 && UNIT_KEYWORDS.some((k) => parts[parts.length - 1].toLowerCase().includes(k.toLowerCase()))) {
+        const unit = parts.pop().trim();
+        return { name: parts.join(" - ").trim(), unit };
+    }
+    return { name: str, unit: "" };
+}
+
+/* دالة مساعدة: استخراج قائمة الأدوية أو تفاصيل الروشتة من JSON
+    ترجّع دايمًا array من { name, unit } */
 function resolveItems(order) {
-    // 1) نتيجة string_agg من order_items
-    if (order.items && typeof order.items === "string" && order.items.trim() !== "") {
-        const trimmed = order.items.trim();
-        if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) {
-            return trimmed.split(",").map((s) => s.trim()).filter(Boolean);
+    // 1) نتيجة json_agg من order_items — الشكل الجديد [{name, unit}]
+    if (order.items) {
+        let parsedItems = order.items;
+        if (typeof parsedItems === "string") {
+            try { parsedItems = JSON.parse(parsedItems); } catch (e) { parsedItems = null; }
+        }
+        if (Array.isArray(parsedItems) && parsedItems.length) {
+            return parsedItems
+                .map((it) => (it && typeof it === "object" ? { name: it.name || "", unit: it.unit || "" } : splitMedicineItem(it)))
+                .filter((it) => it.name);
         }
     }
 
-    // 2/3/4) fallback: عمود orders.items الخام (JSONB)
+    // 2/3/4) fallback: عمود orders.items الخام (JSONB) — للطلبات القديمة قبل التعديل
     const raw = order.rawItems;
     if (!raw) return [];
 
@@ -35,33 +83,28 @@ function resolveItems(order) {
     try {
         parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
     } catch (e) {
-        return typeof raw === "string" && raw.trim() ? [raw.trim()] : [];
+        return typeof raw === "string" && raw.trim() ? [splitMedicineItem(raw.trim())] : [];
     }
 
     // شكل array حقيقي: زي اللي بيبعت الروشتة [{"drug_name": "روشتة مصورة", "image_url": "..."}]
     if (Array.isArray(parsed)) {
-        return parsed.map((item) => {
-            if (item && typeof item === "object") {
-                return item.drug_name || item.text || JSON.stringify(item);
-            }
-            return typeof item === "string" ? item.trim() : String(item);
-        }).filter(Boolean);
+        return parsed.map((item) => splitMedicineItem(item)).filter((it) => it.name);
     }
 
     // شكل object فيه "items" array
     if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) {
-        return parsed.items.map((s) => String(s).trim()).filter(Boolean);
+        return parsed.items.map((s) => splitMedicineItem(s)).filter((it) => it.name);
     }
 
     // شكل object فيه "text"
     if (parsed && typeof parsed === "object" && typeof parsed.text === "string") {
         return parsed.text
             .split(/[,،\n]+/)
-            .map((s) => s.trim())
-            .filter(Boolean);
+            .map((s) => splitMedicineItem(s))
+            .filter((it) => it.name);
     }
 
-    if (typeof parsed === "string" && parsed.trim()) return [parsed.trim()];
+    if (typeof parsed === "string" && parsed.trim()) return [splitMedicineItem(parsed.trim())];
 
     return [];
 }
@@ -226,8 +269,9 @@ router.get("/orders", async (req, res) => {
                 o.*,
                 o.items as "rawItems",
                 COALESCE(
-                    (SELECT string_agg(DISTINCT oi.medicine_name, ',') FROM order_items oi WHERE oi.order_id = o.id),
-                    ''
+                    (SELECT json_agg(json_build_object('name', oi.medicine_name, 'unit', oi.unit) ORDER BY oi.id)
+                     FROM order_items oi WHERE oi.order_id = o.id),
+                    '[]'
                 ) as items,
                 COALESCE(
                     (SELECT string_agg(DISTINCT oi.status, ',') FROM order_items oi WHERE oi.order_id = o.id),
@@ -295,8 +339,9 @@ router.get("/orders/:id", async (req, res) => {
                 o.*,
                 o.items as "rawItems",
                 COALESCE(
-                    (SELECT string_agg(DISTINCT oi.medicine_name, ',' ORDER BY oi.id) FROM order_items oi WHERE oi.order_id = o.id),
-                    ''
+                    (SELECT json_agg(json_build_object('name', oi.medicine_name, 'unit', oi.unit) ORDER BY oi.id)
+                     FROM order_items oi WHERE oi.order_id = o.id),
+                    '[]'
                 ) as items,
                 COALESCE(
                     (SELECT string_agg(DISTINCT oi.status, ',' ORDER BY oi.id) FROM order_items oi WHERE oi.order_id = o.id),
@@ -361,6 +406,10 @@ router.get("/orders/:id", async (req, res) => {
 
 /* ============================================================
     إنشاء طلب جديد
+    ------------------------------------------------------------
+    🆕 كل صنف بيتقسم لاسم الدواء + نوع العبوة (splitMedicineItem)
+    قبل ما يتخزن في order_items، عشان التوب سيرش وإحصائيات الأدوية
+    تجمع الأصناف تحت اسم الدواء الحقيقي بس.
     ============================================================ */
 router.post("/orders", async (req, res) => {
     try {
@@ -385,9 +434,10 @@ router.post("/orders", async (req, res) => {
 
         if (items && Array.isArray(items)) {
             for (const item of items) {
+                const { name, unit } = splitMedicineItem(item);
                 await db.run(
-                    `INSERT INTO order_items (order_id, medicine_name, status) VALUES ($1, $2, 'pending')`,
-                    [orderId, typeof item === 'object' ? (item.drug_name || JSON.stringify(item)) : item]
+                    `INSERT INTO order_items (order_id, medicine_name, unit, status) VALUES ($1, $2, $3, 'pending')`,
+                    [orderId, name || JSON.stringify(item), unit || null]
                 );
             }
         }
@@ -569,6 +619,28 @@ router.get("/orders-stats", async (req, res) => {
     } catch (err) {
         console.error("❌ خطأ في جلب الإحصائيات:", err.message);
         res.status(500).json({ ok: false, error: "فشل في جلب الإحصائيات" });
+    }
+});
+
+/* ============================================================
+    🆕 الأدوية الأكثر طلبًا — Top medicines (اسم الدواء منفصل عن العبوة)
+    ------------------------------------------------------------
+    مجمّعة من order_items.medicine_name مباشرة في الداتابيز، عشان
+    الحساب يبقى دقيق ومركزي بدل ما يتحسب في الفرونت إند من بيانات
+    قديمة فيها الاسم والعبوة ملزّقين.
+    ============================================================ */
+router.get("/medicines-stats", async (req, res) => {
+    try {
+        const rows = await db.all(`
+            SELECT oi.medicine_name as name, COUNT(*)::int as count
+            FROM order_items oi
+            GROUP BY oi.medicine_name
+            ORDER BY count DESC
+        `);
+        res.json({ ok: true, medicines: rows });
+    } catch (err) {
+        console.error("❌ خطأ في جلب إحصائيات الأدوية:", err.message);
+        res.status(500).json({ ok: false, error: "فشل في جلب إحصائيات الأدوية" });
     }
 });
 
