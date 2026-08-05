@@ -138,7 +138,7 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // 2.5. --- order_items table (Required by orders.js queries: string_agg on order_items) ---
+        // 2.5. --- order_items table (Required by orders.js queries: json_agg on order_items) ---
         await run(`
             CREATE TABLE IF NOT EXISTS order_items (
                 id SERIAL PRIMARY KEY,
@@ -149,6 +149,11 @@ const initializeDatabase = async () => {
                 CONSTRAINT fk_order_items_order FOREIGN KEY (order_id) REFERENCES orders(id)
             )
         `);
+
+        // 2.6. --- (جديد) عمود "unit" لتخزين نوع العبوة (علبة / شريط / أمبولة ... إلخ)
+        //       منفصلًا عن اسم الدواء نفسه، عشان التوب سيرش وإحصائيات الأدوية
+        //       تجمع كل الأصناف تحت اسم الدواء الحقيقي بدون ما يتلخبط بالعبوة.
+        await run(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT NULL`);
 
         // 3. --- order_timeline table ---
         await run(`
