@@ -505,7 +505,7 @@ App.pages = App.pages || {};
             <div style="display:flex;gap:9px;flex-wrap:wrap">
               ${canConfirmReceipt ? `<button class="btn btn-success" id="act-receive">${icon("checkCircle", 17)} تأكيد الاستلام</button>` : ""}
               ${canAct ? `<button class="btn btn-success" id="act-accept" ${capacityReached ? "disabled" : ""}>${icon("checkCircle", 17)} قبول الطلب</button>` : ""}
-              ${canAct ? `<button class="btn btn-primary" id="act-partial" ${capacityReached ? "disabled" : ""}>${icon("split", 17)} تنفيذ جزئي</button>` : ""}
+              
               ${canAct ? `<button class="btn btn-danger-soft" id="act-reject" ${capacityReached ? "disabled" : ""}>${icon("xCircle", 17)} لا أستطيع التنفيذ</button>` : ""}
             </div>
           </div>
