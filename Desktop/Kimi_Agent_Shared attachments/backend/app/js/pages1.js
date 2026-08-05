@@ -9,11 +9,30 @@ App.pages = App.pages || {};
   const S = () => App.store;
 
   /* ============================================================
+     🆕 medLabel() — عرض اسم الدواء منفصل عن نوع العبوة (شارة صغيرة)
+     ------------------------------------------------------------
+     items ممكن توصل بشكلين: سترينج قديم "Panadol" أو object جديد
+     { name: "Fucidin", unit: "علبة" } (من الباك إند بعد الفصل).
+     الدالة دي بتوحّد العرض في كل مكان: اسم الدواء بالخط العادي +
+     شارة صغيرة للعبوة لو موجودة، بدل ما يكونوا ملزّقين في سطر واحد.
+     ============================================================ */
+  function medLabel(m) {
+    if (m && typeof m === "object") {
+      const name = esc(m.name || "");
+      const unit = m.unit
+        ? ` <b class="unit-tag" style="font-weight:700;font-size:11px;color:var(--sky-700,#0284c7);background:var(--sky-50,#e0f2fe);border-radius:6px;padding:1px 6px;margin-inline-start:4px">${esc(m.unit)}</b>`
+        : "";
+      return `${name}${unit}`;
+    }
+    return esc(m);
+  }
+
+  /* ============================================================
      مكونات مشتركة
      ============================================================ */
   function orderCard(o, { showPharmacy = true, showPhone = false } = {}) {
     const st = STATUS[o.status] || STATUS.pending;
-    const meds = o.items.slice(0, 4).map((m) => `<span class="med-chip">${icon("pill", 12)} ${esc(m)}</span>`).join("");
+    const meds = o.items.slice(0, 4).map((m) => `<span class="med-chip">${icon("pill", 12)} ${medLabel(m)}</span>`).join("");
     const more = o.items.length > 4 ? `<span class="med-chip more">+${o.items.length - 4}</span>` : "";
     const phoneRow = showPhone && o.status === "accepted"
       ? `<div>${icon("phone", 14)} <span class="mono" dir="ltr">${esc(o.phone)}</span></div>`
@@ -62,7 +81,7 @@ App.pages = App.pages || {};
                   <div class="cell-sub">${esc(o.address)}</div>
                 </td>
                 <td class="td-phone mono" data-label="الهاتف" dir="ltr" style="text-align:right">${showPhone || o.status === "accepted" ? esc(o.phone) : '<span class="muted small">—</span>'}</td>
-                <td class="td-meds" data-label="الأدوية"><div class="med-chips">${o.items.slice(0, 2).map((m) => `<span class="med-chip">${esc(m)}</span>`).join("")}${o.items.length > 2 ? `<span class="med-chip more">+${o.items.length - 2}</span>` : ""}</div></td>
+                <td class="td-meds" data-label="الأدوية"><div class="med-chips">${o.items.slice(0, 2).map((m) => `<span class="med-chip">${medLabel(m)}</span>`).join("")}${o.items.length > 2 ? `<span class="med-chip more">+${o.items.length - 2}</span>` : ""}</div></td>
                 ${showPharmacy ? `<td class="td-pharmacy" data-label="الصيدلية">${o.pharmacyName ? esc(o.pharmacyName) : '<span class="muted small">—</span>'}</td>` : ""}
                 <td class="td-status" data-label="الحالة">${statusBadge(o.status)}</td>
                 ${showPrice ? `<td class="td-price bold" data-label="السعر" style="color:var(--sky-700)">${o.price != null ? fmtMoney(o.price) : '<span class="muted small">—</span>'}</td>` : ""}
@@ -74,7 +93,7 @@ App.pages = App.pages || {};
       </div>`;
   }
 
-  App.shared = { orderCard, ordersTable };
+  App.shared = { orderCard, ordersTable, medLabel };
 
   /* ============================================================
      لوحة التحكم الرئيسية
@@ -253,7 +272,7 @@ App.pages = App.pages || {};
     const q = ordersFilter.q.trim().toLowerCase();
     if (q) list = list.filter((o) =>
       o.id.includes(q) || o.customerName.toLowerCase().includes(q) ||
-      o.phone.includes(q) || o.items.some((m) => m.toLowerCase().includes(q)) ||
+      o.phone.includes(q) || o.items.some((m) => (typeof m === "string" ? m : (m.name || "")).toLowerCase().includes(q)) ||
       (o.pharmacyName || "").includes(q));
 
     document.getElementById("orders-list").innerHTML = ordersTable(list, { showPhone: true });
@@ -410,6 +429,7 @@ App.pages = App.pages || {};
 (function () {
   const { icon, esc, statusBadge, fmtDateTime, timeAgo, fmtMoney, emptyState, toast, modal, confirmModal, STATUS } = App.ui;
   const S = () => App.store;
+  const medLabel = (m) => App.shared.medLabel(m);
 
   /* ============================================================
      أزرار "Active Orders" — ترتيب إجباري: خطوة واحدة تالية متاحة فقط،
@@ -468,12 +488,12 @@ App.pages = App.pages || {};
       ? `
         <div style="margin-top:6px">
           <div class="bold" style="margin-bottom:9px;color:#047857">${icon("checkCircle", 15)} الأدوية المتوفرة (${o.availableItems.length})</div>
-          <div class="med-chips" style="margin-bottom:14px">${o.availableItems.map((m) => `<span class="med-chip ok">${icon("check", 13)} ${esc(m)}</span>`).join("") || '<span class="muted small">—</span>'}</div>
+          <div class="med-chips" style="margin-bottom:14px">${o.availableItems.map((m) => `<span class="med-chip ok">${icon("check", 13)} ${medLabel(m)}</span>`).join("") || '<span class="muted small">—</span>'}</div>
           ${o.unavailableItems.length ? `
             <div class="bold" style="margin-bottom:9px;color:#b91c1c">${icon("xCircle", 15)} الأدوية غير المتوفرة (${o.unavailableItems.length})</div>
-            <div class="med-chips">${o.unavailableItems.map((m) => `<span class="med-chip no">${icon("x", 13)} ${esc(m)}</span>`).join("")}</div>` : ""}
+            <div class="med-chips">${o.unavailableItems.map((m) => `<span class="med-chip no">${icon("x", 13)} ${medLabel(m)}</span>`).join("")}</div>` : ""}
         </div>`
-      : `<div class="med-chips">${o.items.map((m) => `<span class="med-chip">${icon("pill", 13)} ${esc(m)}</span>`).join("")}</div>`;
+      : `<div class="med-chips">${o.items.map((m) => `<span class="med-chip">${icon("pill", 13)} ${medLabel(m)}</span>`).join("")}</div>`;
 
     // التحقق الآمن والسليم لعرض صورة الروشتة أو رسالة بديلة في حال عدم توفر رابط صحيح
     const rxImg = o.prescriptionImage;
@@ -585,6 +605,13 @@ App.pages = App.pages || {};
 
   /* ============================================================
      نافذة التنفيذ الجزئي — تحديد الأصناف المتوفرة والسعر
+     ------------------------------------------------------------
+     🆕 بما إن o.items ممكن يبقوا objects {name, unit} دلوقتي، الـ
+     checkbox value بقى index الصنف جوه o.items بدل قيمة نصية مباشرة
+     (عشان attribute الـ value لازم يبقى سترينج بسيط)، وبعدين بنرجع
+     نجيب العنصر الأصلي بالـ index وقت الحفظ — ده كمان بيحافظ على
+     نفس reference جوه o.items عشان فلترة unavailableItems (فوق في
+     partialOrder داخل store.js) تفضل شغالة بنفس منطق المقارنة.
      ============================================================ */
   function openPartialModal(o, user) {
     modal({
@@ -595,8 +622,8 @@ App.pages = App.pages || {};
         <div id="pm-items" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
           ${o.items.map((m, i) => `
             <label style="display:flex;align-items:center;gap:9px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer">
-              <input type="checkbox" class="pm-item-check" value="${esc(m)}" data-idx="${i}" checked />
-              <span>${esc(m)}</span>
+              <input type="checkbox" class="pm-item-check" value="${i}" data-idx="${i}" checked />
+              <span>${medLabel(m)}</span>
             </label>`).join("")}
         </div>
         <div class="field" style="margin-bottom:10px"><label>السعر الإجمالي (جنيه)</label>
@@ -612,7 +639,8 @@ App.pages = App.pages || {};
         overlay.querySelector("#pm-save").onclick = () => {
           const err = overlay.querySelector("#pm-error");
           const fail = (m) => { err.textContent = m; err.classList.add("show"); };
-          const checked = [...overlay.querySelectorAll(".pm-item-check:checked")].map((c) => c.value);
+          const checkedIdx = [...overlay.querySelectorAll(".pm-item-check:checked")].map((c) => Number(c.value));
+          const checked = checkedIdx.map((i) => o.items[i]);
           const price = Number(overlay.querySelector("#pm-price").value);
           const notes = overlay.querySelector("#pm-notes").value.trim();
           if (!checked.length) return fail("حدد صنفًا واحدًا على الأقل كمتوفر");
