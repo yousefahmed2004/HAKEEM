@@ -559,95 +559,76 @@ window.App = window.App || {};
       });
     },
 
-    /* ============================================================
-       🆕 submitChecklist — الفعل الوحيد على الطلب المعلّق
-       ------------------------------------------------------------
-       decisions: array من true/false بنفس ترتيب o.items (true = متوفر)
-       يحدد السيرفر تلقائيًا هل ده قبول كامل / تنفيذ جزئي / اعتذار كامل
-       ============================================================ */
-    async submitChecklist(id, user, decisions, price, notes) {
+    acceptOrder(id, user) {
       const o = this.getOrder(id);
       if (!o || o.status !== "pending" || (o.rejectedBy && o.rejectedBy.includes(user.id))) return null;
-
-      const available = o.items.filter((_, i) => decisions[i]);
-      const unavailable = o.items.filter((_, i) => !decisions[i]);
       const pharmacist = db.users.find((u) => u.id === user.id) || user;
-
-      if (available.length > 0) {
-        ensureExecutionProfile(pharmacist);
-        if (getActiveOrderCountForPharmacist(user.id) >= getDefaultMaxActiveOrders(pharmacist)) return null;
-      }
-
-      let result;
-      try {
-        result = await App.api.checklistOrder(id, {
-          pharmacyId: user.id,
-          pharmacyName: user.pharmacyName,
-          availableItems: available,
-          unavailableItems: unavailable,
-          price: available.length ? price : null,
-          notes: notes || "",
-        });
-      } catch (e) {
-        console.error("Failed to submit checklist:", e);
-        return null;
-      }
-      if (!result || !result.ok) return null;
-
-      const nowIso = new Date().toISOString();
-
-      if (result.mode === "rejected") {
-        if (!o.rejectedBy) o.rejectedBy = [];
-        if (!o.rejectedBy.includes(user.id)) o.rejectedBy.push(user.id);
-        o.timeline.push({ at: nowIso, text: `اعتذر عن التنفيذ — ${user.pharmacyName}`, color: "#ef4444" });
-        if (result.newStatus === "rejected") {
-          o.status = "rejected";
-          o.timeline.push({ at: nowIso, text: "لم يتمكن أي صيدلي من التنفيذ", color: "#ef4444" });
-        }
-      } else if (result.mode === "accepted") {
+      if (!pharmacist || getActiveOrderCountForPharmacist(user.id) >= getDefaultMaxActiveOrders(pharmacist)) return null;
+      ensureExecutionProfile(pharmacist);
+      if (pharmacist) {
         pharmacist.executionStats.accepted += 1;
-        o.status = "accepted";
-        o.pharmacyId = user.id; o.pharmacyName = user.pharmacyName;
-        o.availableItems = [...o.items]; o.unavailableItems = [];
-        o.price = price; o.notes = notes || "";
-        o.workflowStatus = "awaiting_receipt";
-        o.executionPending = true;
-        o.executionDeadline = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-        o.executionCompleted = false; o.executionFailed = false; o.executedAt = null;
-        o.timeline.push({ at: nowIso, text: `قبل الطلب — ${user.pharmacyName}`, color: "#10b981" });
-      } else if (result.mode === "partial") {
-        pharmacist.executionStats.accepted += 1;
-        o.status = "partial";
-        o.pharmacyId = user.id; o.pharmacyName = user.pharmacyName;
-        o.availableItems = available; o.unavailableItems = unavailable;
-        o.price = price; o.notes = notes || "";
-        o.workflowStatus = "received";
-        o.executionPending = false; o.executionDeadline = null;
-        o.executionCompleted = true; o.executionFailed = false;
-        o.executedAt = nowIso;
-        o.timeline.push({ at: nowIso, text: `تنفيذ جزئي (${available.length} من ${o.items.length} أدوية) — ${user.pharmacyName}`, color: "#0ea5e9" });
-
-        if (result.newOrderId && unavailable.length) {
-          const newOrder = {
-            id: String(result.newOrderId),
-            customerName: o.customerName, phone: o.phone, address: o.address,
-            items: unavailable,
-            prescriptionImage: o.prescriptionImage || "",
-            status: "pending",
-            createdAt: nowIso,
-            pharmacyId: null, pharmacyName: null, price: null,
-            availableItems: [], unavailableItems: [], notes: `أدوية لم تتوفر في الطلب #${id}`, rejectedBy: [],
-            timeline: [{ at: nowIso, text: `طلب جديد — أدوية لم تتوفر في الطلب الأصلي #${id} (${user.pharmacyName})`, color: "#f59e0b" }],
-            workflowStatus: null, executionPending: false, executionDeadline: null,
-            executionCompleted: false, executionFailed: false, executedAt: null,
-          };
-          db.orders.push(newOrder);
-          if (knownOrderIds) knownOrderIds.add(newOrder.id);
-        }
       }
-
+      o.status = "accepted";
+      o.pharmacyId = user.id; o.pharmacyName = user.pharmacyName;
+      o.availableItems = [...o.items]; o.unavailableItems = [];
+      o.workflowStatus = "awaiting_receipt";
+      o.executionPending = true;
+      o.executionDeadline = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      o.executionCompleted = false;
+      o.executionFailed = false;
+      o.executedAt = null;
+      const timelineText = `قبل الطلب — ${user.pharmacyName}`;
+      const timelineColor = "#10b981";
+      o.timeline.push({ at: new Date().toISOString(), text: timelineText, color: timelineColor });
       save(); emit();
-      syncOrders();
+      /* مهلة الـ 5 دقايق دي بتتراقب سيرفريًا (expireOverdueOrders في orders.js).
+         أي خطوة تالية (تأكيد استلام أو أي إجراء توركفلو) هتصفّرها فورًا —
+         شوف confirmReceiptOrder و updateOrderWorkflowStatus تحت. */
+      saveOrderBackend(o, timelineText, timelineColor);
+      return o;
+    },
+
+    partialOrder(id, user, available, price, notes) {
+      const o = this.getOrder(id);
+      if (!o || o.status !== "pending" || (o.rejectedBy && o.rejectedBy.includes(user.id))) return null;
+      o.status = "partial";
+      o.pharmacyId = user.id; o.pharmacyName = user.pharmacyName;
+      o.availableItems = available;
+      o.unavailableItems = o.items.filter((m) => !available.includes(m));
+      o.price = price; o.notes = notes || "";
+      o.workflowStatus = "received";
+      o.executionPending = false;
+      o.executionDeadline = null;
+      o.executionCompleted = true;
+      o.executionFailed = false;
+      o.executedAt = new Date().toISOString();
+      const timelineText = `تنفيذ جزئي (${available.length} من ${o.items.length} أدوية) — ${user.pharmacyName}`;
+      const timelineColor = "#0ea5e9";
+      o.timeline.push({ at: new Date().toISOString(), text: timelineText, color: timelineColor });
+      save(); emit();
+      saveOrderBackend(o, timelineText, timelineColor);
+      return o;
+    },
+
+    rejectOrder(id, user) {
+      const o = this.getOrder(id);
+      if (!o || o.status !== "pending") return null;
+      if (!o.rejectedBy) o.rejectedBy = [];
+      if (!o.rejectedBy.includes(user.id)) o.rejectedBy.push(user.id);
+      const timelineText1 = `اعتذر عن التنفيذ — ${user.pharmacyName}`;
+      const timelineColor1 = "#ef4444";
+      o.timeline.push({ at: new Date().toISOString(), text: timelineText1, color: timelineColor1 });
+      const activePh = db.users.filter((u) => u.role === "pharmacist" && u.status === "active");
+      let timelineText2 = null;
+      let timelineColor2 = null;
+      if (activePh.length > 0 && activePh.every((p) => o.rejectedBy.includes(p.id))) {
+        o.status = "rejected";
+        timelineText2 = "لم يتمكن أي صيدلي من التنفيذ";
+        timelineColor2 = "#ef4444";
+        o.timeline.push({ at: new Date().toISOString(), text: timelineText2, color: timelineColor2 });
+      }
+      save(); emit();
+      saveOrderBackend(o, timelineText2 || timelineText1, timelineColor2 || timelineColor1);
       return o;
     },
 
