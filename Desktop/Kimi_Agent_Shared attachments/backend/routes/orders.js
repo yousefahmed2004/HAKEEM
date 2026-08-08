@@ -659,6 +659,12 @@ router.put("/orders/:id", async (req, res) => {
     ⚠️ (إصلاح) توليد id صريح للطلب الابن بنفس طريقة generateUniqueOrderId
     (كان العمود من غير DEFAULT فبيرمي null value violates not-null).
 
+    ⚠️ (إصلاح 🆕) عمود orders."executedAt" معرّف VARCHAR(100) مش
+    TIMESTAMP (شوف database.js). كان بيتبعتله NOW() مباشرة، وده
+    بيرمي خطأ نوع بيانات في بوستجريس (varchar لا يقبل timestamp)
+    فبتفشل الـ transaction كلها بـ 500 قبل ما توصل حتى لخطوة إنشاء
+    الطلب الابن. دلوقتي بنبعت string جاهز (ISO) بدل NOW().
+
     الـ webhooks (تنبيه نفاد الدواء) بتتبعت بعد نجاح الـ commit فقط،
     عشان محاولة إرسالها متعملش rollback للعملية الأساسية لو فشلت.
     ============================================================ */
@@ -709,19 +715,25 @@ router.post("/orders/:id/partial", async (req, res) => {
             // rootOrderId بتاعه، وإلا هو نفسه الجذر (أول طلب في السلسلة)
             const rootOrderId = order.rootOrderId || order.id;
 
+            /* ⚠️ (إصلاح) "executedAt" عمود VARCHAR مش TIMESTAMP — لازم نبعتله
+               نص جاهز (ISO string) بدل NOW() عشان متطلعش خطأ نوع بيانات
+               توقف الـ transaction كلها. */
+            const executedAtValue = new Date().toISOString();
+
             // 1) تحديث الطلب الحالي — تنفيذ جزئي بالأصناف المتوفرة فقط
             await tx.run(
                 `UPDATE orders
                  SET status = 'partial', "pharmacyId" = $1, "pharmacyName" = $2,
                      "availableItems" = $3, "unavailableItems" = $4, price = $5, notes = $6,
                      "workflowStatus" = 'received', "executionPending" = 0, "executionDeadline" = NULL,
-                     "executionCompleted" = 1, "executionFailed" = 0, "executedAt" = NOW(),
-                     "rootOrderId" = $7, "updatedAt" = NOW()
-                 WHERE id = $8`,
+                     "executionCompleted" = 1, "executionFailed" = 0, "executedAt" = $7,
+                     "rootOrderId" = $8, "updatedAt" = NOW()
+                 WHERE id = $9`,
                 [
                     pharmacyId, pharmacyName,
                     JSON.stringify(availableItems), JSON.stringify(unavailableItems),
                     Number(price), notes || null,
+                    executedAtValue,
                     rootOrderId, id,
                 ]
             );
