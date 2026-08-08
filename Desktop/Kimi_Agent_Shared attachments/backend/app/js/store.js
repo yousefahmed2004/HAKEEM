@@ -254,7 +254,10 @@ window.App = window.App || {};
            لأنها هي الوحيدة اللي كانت بتنادي notifyNewOrder مباشرة.
            هنا بنقارن IDs الطلبات الجديدة بالمعروفة، ولو لقينا IDs جديدة
            (بعد أول تحميل للصفحة) بننادي App.notifications.orderArrived
-           لكل واحد منها عشان يشغّل نفس صوت/تنبيه المحاكاة بالظبط. */
+           لكل واحد منها عشان يشغّل نفس صوت/تنبيه المحاكاة بالظبط.
+           🆕 ده كمان بيغطي الطلبات الجديدة اللي بتتكون تلقائيًا من انقسام
+           طلب أصلي بعد ما صيدلي يرفض بعض الأصناف (checklist) — بتظهر
+           بنفس التنبيه العادي لأي طلب جديد. */
         const incomingIds = new Set(res.orders.map((o) => o.id));
         if (knownOrderIds !== null) {
           const newlyArrived = res.orders.filter((o) => !knownOrderIds.has(o.id));
@@ -608,6 +611,37 @@ window.App = window.App || {};
       save(); emit();
       saveOrderBackend(o, timelineText, timelineColor);
       return o;
+    },
+
+    /* ============================================================
+       🆕 partialChecklist — تحديد كل صنف على حدة (✓ متوفر / ✗ غير متوفر)
+       ------------------------------------------------------------
+       بتنادي endpoint جديد في الباك إند (/orders/:id/checklist) اللي
+       بيتكفل بكل منطق الانقسام: الأصناف المقبولة تفضل على نفس الطلب،
+       والمرفوضة إما بتتحول لطلب جديد "pending" لباقي الصيادلة، أو
+       لو وصلت لعتبة الرفض (افتراضيًا 5 صيادلة) بتتحول "غير متوفرة"
+       نهائيًا ويتم إبلاغ العميل تلقائيًا — كل ده بيحصل في السيرفر
+       عشان يبقى مصدر الحقيقة الوحيد بغض النظر عن كام تاب فاتح.
+       decisions: [{ id: <order_item id>, decision: 'accept' | 'reject' }]
+       ============================================================ */
+    async partialChecklist(id, user, decisions, price, notes) {
+      try {
+        const result = await App.api.updateOrderChecklist(id, {
+          pharmacyId: user.id,
+          pharmacyName: user.pharmacyName,
+          decisions,
+          price: price != null ? price : null,
+          notes: notes || "",
+        });
+        if (result && result.ok) {
+          await syncOrders();
+          return result;
+        }
+        return null;
+      } catch (e) {
+        console.error("Failed to update order checklist:", e);
+        return null;
+      }
     },
 
     rejectOrder(id, user) {
