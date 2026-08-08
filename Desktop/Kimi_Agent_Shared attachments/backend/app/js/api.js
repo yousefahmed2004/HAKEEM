@@ -108,6 +108,14 @@ window.App = window.App || {};
             });
         },
 
+        /* 🆕 Checklist — الفعل الوحيد على الطلب المعلّق */
+        async checklistOrder(id, payload) {
+            return apiRequest(`/orders/${id}/checklist`, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
+        },
+
         async getOrdersStats() {
             return apiRequest("/orders-stats");
         },
