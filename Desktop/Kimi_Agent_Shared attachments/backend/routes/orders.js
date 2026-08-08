@@ -7,9 +7,6 @@ const db = require("../db/database");
 const https = require("https");
 require("dotenv").config();
 
-/* دالة مساعدة: توحيد قيمة status لحروف صغيرة دايمًا
-    عشان القيم القادمة من n8n (Pending / PENDING / pending)
-    متتطابقش مع الفرونت إند اللي بيقارن بـ "pending" حصريًا */
 function normalizeStatus(status) {
     if (!status) return "pending";
     const s = String(status).trim().toLowerCase();
@@ -17,54 +14,25 @@ function normalizeStatus(status) {
     return allowed.includes(s) ? s : "pending";
 }
 
-/* ============================================================
-    🆕 (إصلاح) عمود orders.id هو VARCHAR(100) PRIMARY KEY من غير
-    أي DEFAULT — يعني أي INSERT لازم يبعت قيمة id بنفسه، وإلا
-    الـ PRIMARY KEY بيرفض NULL بخطأ "null value in column id
-    violates not-null constraint".
-    بنولّد رقم عشوائي من 5 أرقام (زي بالظبط اللي بيعمله n8n:
-    floor(random() * 90000 + 10000)) عشان نفس شكل الـ IDs في
-    كل مكان في النظام. في الاحتمال النادر جدًا لتصادم مع id
-    موجود فعلاً، بنعيد المحاولة لحد 5 مرات.
-    ============================================================ */
 async function generateUniqueOrderId(queryRunner) {
     for (let attempt = 0; attempt < 5; attempt++) {
         const candidate = String(Math.floor(Math.random() * 90000) + 10000);
         const existing = await queryRunner.get(`SELECT id FROM orders WHERE id = $1`, [candidate]);
         if (!existing) return candidate;
     }
-    // fallback نادر جدًا: نضيف timestamp عشان نضمن التفرد
     return String(Date.now()).slice(-8);
 }
 
-/* ============================================================
-    🆕 (تنفيذ جزئي) عدد الصيدليات المختلفة اللي لو اعتذرت عن نفس
-    الصنف ضمن نفس سلسلة الطلب، بيُعتبر الصنف "ناقص السوق" ويترسل
-    تنبيه للعميل. قابل للتعديل عبر متغير بيئة SHORTAGE_THRESHOLD.
-    ============================================================ */
 const SHORTAGE_THRESHOLD = Number(process.env.SHORTAGE_THRESHOLD || 5);
 
-/* رابط Webhook الخاص بـ n8n لإرسال رسالة "الدواء ده ناقص السوق" للعميل
-    (Webhook4 → "shortage message to customer" في ملف الـ workflow) */
 const N8N_SHORTAGE_WEBHOOK_URL =
     process.env.N8N_SHORTAGE_WEBHOOK_URL ||
     "https://hakeem-n8n.62wz9l.easypanel.host/webhook/SHORTAGE";
 
-/* رابط Webhook الشحن الحالي (بدون تغيير) */
 const N8N_SHIPPING_WEBHOOK_URL =
     process.env.N8N_WEBHOOK_URL ||
     "https://hakeem-n8n.62wz9l.easypanel.host/webhook/SHIBBING";
 
-/* ============================================================
-    🆕 فصل اسم الدواء عن نوع العبوة (علبة / شريط / أمبولة ... إلخ)
-    ------------------------------------------------------------
-    كان بيوصل من الشات بوت سترينج واحد ملزّق زي "Fucidin - علبة"،
-    فكان بيتخزن كده في medicine_name وبالتالي التوب سيرش وإحصائيات
-    الأدوية كانت بتعتبر "Fucidin - علبة" و"Fucidin - شريط" صنفين
-    مختلفين تمامًا بدل ما تتجمع تحت اسم "Fucidin" الحقيقي.
-    الدالة دي بتفصل الاسم عن العبوة وقت الإدخال، فيتخزنوا في عمودين
-    منفصلين (medicine_name / unit) من الأول.
-    ============================================================ */
 const UNIT_KEYWORDS = [
     "علبة", "علب", "شريط", "شرائط", "أمبولة", "أمبولات", "فيال", "فيالات",
     "زجاجة", "زجاجات", "أنبوبة", "أنبوبات", "كيس", "أكياس", "قرص", "أقراص",
@@ -72,7 +40,6 @@ const UNIT_KEYWORDS = [
 ];
 
 function splitMedicineItem(raw) {
-    // Object صريح فيه name/unit أو drug_name جاهزين
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
         const rawName = String(raw.name || raw.drug_name || raw.text || "").trim();
         let unit = String(raw.unit || raw.package || raw.form || "").trim();
@@ -86,7 +53,6 @@ function splitMedicineItem(raw) {
         return { name: rawName, unit: "" };
     }
 
-    // سترينج زي "Fucidin - علبة"
     const str = String(raw || "").trim();
     if (!str) return { name: "", unit: "" };
     const parts = str.split(/\s*-\s*/);
@@ -97,10 +63,7 @@ function splitMedicineItem(raw) {
     return { name: str, unit: "" };
 }
 
-/* دالة مساعدة: استخراج قائمة الأدوية أو تفاصيل الروشتة من JSON
-    ترجّع دايمًا array من { name, unit } */
 function resolveItems(order) {
-    // 1) نتيجة json_agg من order_items — الشكل الجديد [{name, unit}]
     if (order.items) {
         let parsedItems = order.items;
         if (typeof parsedItems === "string") {
@@ -113,7 +76,6 @@ function resolveItems(order) {
         }
     }
 
-    // 2/3/4) fallback: عمود orders.items الخام (JSONB) — للطلبات القديمة قبل التعديل
     const raw = order.rawItems;
     if (!raw) return [];
 
@@ -124,17 +86,14 @@ function resolveItems(order) {
         return typeof raw === "string" && raw.trim() ? [splitMedicineItem(raw.trim())] : [];
     }
 
-    // شكل array حقيقي: زي اللي بيبعت الروشتة [{"drug_name": "روشتة مصورة", "image_url": "..."}]
     if (Array.isArray(parsed)) {
         return parsed.map((item) => splitMedicineItem(item)).filter((it) => it.name);
     }
 
-    // شكل object فيه "items" array
     if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) {
         return parsed.items.map((s) => splitMedicineItem(s)).filter((it) => it.name);
     }
 
-    // شكل object فيه "text"
     if (parsed && typeof parsed === "object" && typeof parsed.text === "string") {
         return parsed.text
             .split(/[,،\n]+/)
@@ -147,11 +106,9 @@ function resolveItems(order) {
     return [];
 }
 
-/* دالة مساعدة ذكية لاستخراج الصورة بجميع الطرق المحتملة */
 function extractPrescriptionImage(order) {
     let extractedImage = "";
 
-    // 1. البحث في الأعمدة المباشرة المحتملة
     const possibleDirect = [
         order.prescriptionImage,
         order.prescription_image,
@@ -166,7 +123,6 @@ function extractPrescriptionImage(order) {
         }
     }
 
-    // 2. لو مش موجودة مباشرة، نحاول ندور عليها جوا الحقول الخام (rawItems / items)
     if (!extractedImage) {
         try {
             const raw = order.rawItems || order.items;
@@ -188,7 +144,6 @@ function extractPrescriptionImage(order) {
                 }
             }
         } catch (e) {
-            // لو الـ rawItems عبارة عن نص Base64 مباشر أو رابط مباشر مش JSON
             const rawStr = String(order.rawItems || order.items || "");
             if (rawStr.startsWith("data:image/") || rawStr.startsWith("http")) {
                 extractedImage = rawStr;
@@ -199,11 +154,6 @@ function extractPrescriptionImage(order) {
     return extractedImage;
 }
 
-/* ============================================================
-    🔁 دالة عامة لإرسال Webhook إلى n8n (تُستخدم لتحديث الشحن
-    ولتنبيه نفاد الدواء من السوق) — لا تفشل الطلب الأساسي أبدًا،
-    بترجع { ok, status, body } أو { ok:false, error } فقط.
-    ============================================================ */
 function sendN8nWebhook(url, payload) {
     return new Promise((resolve) => {
         try {
@@ -240,15 +190,6 @@ function sendN8nWebhook(url, payload) {
     });
 }
 
-/* ============================================================
-    ⏱️ تنظيف الطلبات اللي انتهت مهلة تنفيذها (Server-side Execution Timeout)
-    ------------------------------------------------------------
-    بتترجع أي طلب "executionPending = 1" وتخطى "executionDeadline"
-    إلى حالة "pending" تاني في قاعدة البيانات مباشرة، عشان القرار
-    يبقى مركزي في السيرفر مش في المتصفح (كان بيسبب رجوع الطلب
-    لقائمة الانتظار بشكل عشوائي بسبب تابات تانية مفتوحة عند
-    مستخدمين آخرين كانت بتشغّل التايمر بتاعها هي بمفردها).
-    ============================================================ */
 async function expireOverdueOrders() {
     try {
         const expired = await db.all(`
@@ -290,22 +231,6 @@ async function expireOverdueOrders() {
     }
 }
 
-/* ============================================================
-    ⏱️ (جديد) تنظيف الطلبات اللي فضلت "pending" فترة طويلة من غير
-    ما أي صيدلي ياخد فيها قرار (قبول/رفض/تنفيذ جزئي).
-    ------------------------------------------------------------
-    ⚠️ ده الإصلاح الأساسي لمشكلة "عندك أوردر سابق" اللي بتظهر
-    للعميل حتى بعد ما يقفل آخر أوردر بنجاح (delivered/closed).
-    السبب: استعلام "هل عندك أوردر نشط؟" في n8n (check Customer11)
-    بيعمل:
-        WHERE phone = ... AND status NOT IN ('delivered','closed')
-        ORDER BY id DESC LIMIT 1
-    وده بيرجّع أقدم/أي أوردر "pending" لسه عالق من غير قرار — حتى
-    لو فيه أوردر أحدث منه اتقفل فعلاً — لأنه بيرتب DESC على مجموعة
-    الأوردرات الغير مقفولة بس، مش على كل الأوردرات.
-    فلازم أي أوردر "pending" يفضل عالق أكتر من مدة محددة (30 دقيقة
-    افتراضيًا) يترفض تلقائيًا عشان محدش يفضل يقفل رقم العميل للأبد.
-    ============================================================ */
 const STALE_PENDING_MINUTES = Number(process.env.STALE_PENDING_MINUTES || 30);
 
 async function expireStalePendingOrders() {
@@ -334,9 +259,6 @@ async function expireStalePendingOrders() {
     }
 }
 
-/* دالة مساعدة موحّدة لتنسيق صف طلب خام (من الاستعلام) إلى الشكل
-    اللي بيستهلكه الفرونت إند — بتتكرر في GET /orders و GET /orders/:id
-    فبقت هنا دالة واحدة بدل التكرار */
 function formatOrderRow(order) {
     const extractedImage = extractPrescriptionImage(order);
     return {
@@ -362,10 +284,145 @@ function formatOrderRow(order) {
         executionFailed: !!order.executionFailed,
         executedAt: order.executedAt || null,
         deliveredAt: order.deliveredAt || null,
-        /* 🆕 روابط سلسلة التنفيذ الجزئي (order splitting) */
         rootOrderId: order.rootOrderId || null,
         parentOrderId: order.parentOrderId || null,
     };
+}
+
+/* ============================================================
+    🆕 جلب كل "أطراف" سلسلة تنفيذ جزئي معيّنة
+    ------------------------------------------------------------
+    السلسلة = الطلب الجذر (rootOrderId) + كل الطلبات الأبناء اللي
+    rootOrderId بتاعهم بيساوي نفس الجذر. لو الطلب مبقى منقسم
+    خالص (صيدلية واحدة نفذته بالكامل)، السلسلة هتحتوي على طلب
+    واحد بس وده طبيعي — الرسالة هتتبعت عادي زي ما هي دلوقتي.
+    ============================================================ */
+async function getChainOrders(rootOrderId) {
+    return await db.all(
+        `SELECT * FROM orders WHERE id = $1 OR "rootOrderId" = $1`,
+        [rootOrderId]
+    );
+}
+
+/* ============================================================
+    🆕 trySendCombinedShippingWebhook — رسالة شحن واحدة موحّدة
+    ------------------------------------------------------------
+    بتُستدعى في كل مرة أي طرف من سلسلة الطلب يوصل لحالة
+    "خرج للتوصيل". الدالة بتتحقق:
+
+    1) هل لسه فيه طرف من السلسلة "pending" (صيدلية تالتة لسه
+       ماخدتش قرار، أو الطلب الأصلي لسه معلّق)؟ → لو أه، منستنى
+       ومنبعتش حاجة لسه.
+
+    2) هل كل الأطراف اللي فعلاً اتنفذت (accepted/partial/closed
+       وعندها pharmacyId) وصلت لـ "خرج للتوصيل" (أو بعدها)؟
+       → لو أي طرف لسه في "تجهيز/جاهز" ومحصلش يخرج للتوصيل،
+       منستنى برضو.
+
+    3) لو الشرطين اتحققوا: نحجز الإرسال عبر INSERT في
+       shipping_notifications (محمي بـ UNIQUE على rootOrderId)،
+       فلو حد تاني (نفس اللحظة بالضبط من طرف تاني) حاول يبعت في
+       نفس الوقت، واحد بس ينجح يحجز ويبعت.
+
+    4) نجمع بيانات كل صيدلية (اسمها/عنوانها/تليفونها/المبلغ
+       المطلوب تحصيله منها/الأدوية المتوفرة عندها) ونبعتهم في
+       "pickups" جوه رسالة واحدة، والـ order_id فيها بيكون ثابت
+       = rootOrderId (نفس رقم الأوردر الأصلي اللي شافه العميل)
+       بغض النظر عن عدد الصيدليات.
+
+    بترجع { sent: bool, waiting: bool } للـ logging بس.
+    ============================================================ */
+async function trySendCombinedShippingWebhook(rootOrderId) {
+    const chain = await getChainOrders(rootOrderId);
+    if (!chain.length) return { sent: false, waiting: false };
+
+    const rootOrder = chain.find((o) => String(o.id) === String(rootOrderId)) || chain[0];
+
+    // أطراف السلسلة اللي فعلاً اتنفذت عند صيدلية معينة
+    const legs = chain.filter(
+        (o) => o.pharmacyId && ["accepted", "partial", "closed"].includes(normalizeStatus(o.status))
+    );
+
+    // أي طرف لسه معلّق (صيدلية تالتة لسه ماخدتش قرار) — لازم نستنى
+    const unresolved = chain.filter((o) => normalizeStatus(o.status) === "pending");
+
+    if (!legs.length || unresolved.length > 0) {
+        return { sent: false, waiting: true };
+    }
+
+    // كل الأطراف المنفّذة لازم توصل "خرج للتوصيل" (أو بعدها: تسليم)
+    const allLegsReady = legs.every(
+        (o) => o.workflowStatus === "out_for_delivery" || o.workflowStatus === "delivered"
+    );
+    if (!allLegsReady) {
+        return { sent: false, waiting: true };
+    }
+
+    // حجز الإرسال — race-safe عبر UNIQUE constraint على rootOrderId
+    const claim = await db.run(
+        `INSERT INTO shipping_notifications ("rootOrderId") VALUES ($1) ON CONFLICT ("rootOrderId") DO NOTHING`,
+        [rootOrderId]
+    );
+    if (claim.changes === 0) {
+        // حد تاني بعت الرسالة قبلنا بلحظات — منبعتش تاني
+        return { sent: false, waiting: false };
+    }
+
+    // تجميع بيانات كل صيدلية (pickup) لصف الشحن
+    const pickups = [];
+    for (const leg of legs) {
+        const ph = await db.get(
+            `SELECT "pharmacyName", address, phone FROM users WHERE id = $1`,
+            [leg.pharmacyId]
+        );
+        const items = leg.availableItems
+            ? (typeof leg.availableItems === "string" ? JSON.parse(leg.availableItems || "[]") : leg.availableItems)
+            : resolveItems({ items: leg.items, rawItems: leg.items });
+
+        pickups.push({
+            order_id: String(leg.id),
+            pharmacy_name: leg.pharmacyName || ph?.pharmacyName || "",
+            pharmacy_address: ph?.address || "",
+            pharmacy_phone: ph?.phone || "",
+            amount_to_collect: leg.price || 0,
+            items: Array.isArray(items) ? items.map((it) => (it && it.name ? it.name : it)) : [],
+        });
+    }
+
+    const totalPrice = pickups.reduce((sum, p) => sum + (Number(p.amount_to_collect) || 0), 0);
+
+    const payload = {
+        order_id: String(rootOrderId),          // 🔒 ثابت — نفس رقم الأوردر مهما كان عدد الصيدليات
+        customer_name: rootOrder.customerName,
+        customer_phone: rootOrder.phone,
+        customer_address: rootOrder.address,
+        pickup_count: pickups.length,           // 1 لو صيدلية واحدة، 2+ لو تنفيذ جزئي بين صيدليات
+        pickups,                                // تفاصيل كل صيدلية بمبلغها المطلوب تحصيله
+        total_price: totalPrice,                // إجمالي التحصيل من كل الصيدليات مجتمعة
+    };
+
+    const result = await sendN8nWebhook(N8N_SHIPPING_WEBHOOK_URL, payload);
+
+    // تسجيل نتيجة الإرسال في تايملاين كل الأطراف عشان يبان في تفاصيل كل طلب
+    const noteText = result.ok
+        ? `تم إبلاغ شركة الشحن — استلام من ${pickups.length} صيدلية بإجمالي ${totalPrice} جنيه`
+        : `تعذر إبلاغ شركة الشحن (${result.error || result.status || "خطأ غير معروف"})`;
+    const noteColor = result.ok ? "#0ea5e9" : "#dc2626";
+
+    for (const leg of legs) {
+        await db.run(
+            `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+            [leg.id, noteText, noteColor]
+        ).catch(() => {});
+    }
+
+    if (!result.ok) {
+        console.error(`[Shipping Webhook ✗] فشل إبلاغ شركة الشحن للسلسلة #${rootOrderId}:`, result.error || result.body);
+    } else {
+        console.log(`[Shipping Webhook ✓] رسالة شحن موحّدة للسلسلة #${rootOrderId} — ${pickups.length} صيدلية`);
+    }
+
+    return { sent: true, waiting: false };
 }
 
 /* ============================================================
@@ -412,16 +469,6 @@ router.get("/orders", async (req, res) => {
 
 /* ============================================================
     جلب طلب واحد
-    ------------------------------------------------------------
-    ⚠️ (إصلاح) PostgreSQL بيرفض استخدام ORDER BY جوه aggregate فيه
-    DISTINCT إلا لو التعبير اللي بترتب بيه موجود في نفس الـ argument
-    list بتاعة الـ aggregate نفسها. كان هنا:
-        string_agg(DISTINCT oi.status, ',' ORDER BY oi.id)
-    وده بيرمي: "in an aggregate with DISTINCT, ORDER BY expressions
-    must appear in argument list" لأن oi.id مش من ضمن آرجيومنتس
-    الـ DISTINCT (اللي هي oi.status بس). الحقل ده (item_statuses)
-    أصلاً مش مستخدم في formatOrderRow، فمفيش داعي للترتيب هنا خالص —
-    تمت إزالة ORDER BY بالكامل (بالظبط زي GET /orders فوق).
     ============================================================ */
 router.get("/orders/:id", async (req, res) => {
     try {
@@ -478,14 +525,6 @@ router.get("/orders/:id", async (req, res) => {
 
 /* ============================================================
     إنشاء طلب جديد
-    ------------------------------------------------------------
-    🆕 كل صنف بيتقسم لاسم الدواء + نوع العبوة (splitMedicineItem)
-    قبل ما يتخزن في order_items، عشان التوب سيرش وإحصائيات الأدوية
-    تجمع الأصناف تحت اسم الدواء الحقيقي بس.
-
-    ⚠️ (إصلاح) عمود "id" هو PRIMARY KEY من غير DEFAULT، و"updatedAt"
-    معرّف NOT NULL — الاتنين دلوقتي بيتبعتوا صراحةً بدل ما يترميوا
-    فاضيين ويسببوا "null value violates not-null constraint".
     ============================================================ */
 router.post("/orders", async (req, res) => {
     try {
@@ -536,22 +575,11 @@ router.post("/orders", async (req, res) => {
 /* ============================================================
     تحديث الطلب
     ------------------------------------------------------------
-    ⚠️ إغلاق تلقائي عند الشحن:
-    بمجرد ما workflowStatus بيوصل "out_for_delivery" (زر "خرج
-    للتوصيل" / تم الشحن)، الطلب بيتقفل مباشرة (status = 'closed')
-    من هنا في الباك إند نفسه — من غير ما نستنى أي خطوة خارجية
-    (زي n8n) تعمل ده. ده كمان بيقفل الـ WhatsApp session بتاعة
-    العميل في جدول customers في نفس اللحظة، عشان لو بعت رسالة
-    تانية بعدها الشات بوت يبدأ معاه طلب جديد مباشرة.
-
-    ⚠️ كمان بيصفّر ذاكرة الشات بتاعة الـ AI Agent (n8n_chat_histories)
-    الخاصة بجلسة العميل ده، عشان محادثة الأوردر القديم متأثرش على
-    أي أوردر جديد هيبدأه بعد كده (نفس فكرة نود "close session" اللي
-    كانت في n8n، بس هنا بقى مركزي في الباك إند + بيمسح الميموري كمان).
-
-    ملحوظة: التنفيذ الجزئي (Partial) بقى ليه مسار مستقل تمامًا:
-    POST /orders/:id/partial تحت — عشان يتعامل مع تقسيم الطلب
-    (Order Splitting) واحتساب نقص الأدوية بشكل آمن ومركزي.
+    🆕 (تعديل) بعد إغلاق الطلب/الـ session عند "خرج للتوصيل"،
+    بننادي trySendCombinedShippingWebhook(rootOrderId) عشان تتحقق
+    هل كل الصيدليات المشتركة في نفس سلسلة الطلب وصلت لنفس المرحلة
+    ولا لسه — ولو الكل جاهز، تبعت رسالة شحن واحدة موحّدة تجمع كل
+    الصيدليات، بدل ما كل صيدلية تبعت رسالتها المستقلة بنفسها.
     ============================================================ */
 router.put("/orders/:id", async (req, res) => {
     try {
@@ -564,8 +592,6 @@ router.put("/orders/:id", async (req, res) => {
             timelineText, timelineColor,
         } = req.body;
 
-        /* أي طلب يوصل لخطوة "خرج للتوصيل" يتقفل أوتوماتيك بغض النظر
-           عن الـ status اللي جاي من الفرونت إند */
         const finalStatus = workflowStatus === "out_for_delivery"
             ? "closed"
             : (status ? normalizeStatus(status) : null);
@@ -580,7 +606,7 @@ router.put("/orders/:id", async (req, res) => {
                  "executedAt" = $13, "deliveredAt" = $14,
                  "rejectedBy" = $15, "updatedAt" = NOW()
              WHERE id = $16
-             RETURNING phone`,
+             RETURNING id, phone, "customerName", address, "rootOrderId"`,
             [
                 finalStatus,
                 pharmacyId || null,
@@ -601,8 +627,6 @@ router.put("/orders/:id", async (req, res) => {
             ]
         );
 
-        /* إغلاق session الشات بوت الخاصة بالعميل فور خروج الطلب للتوصيل،
-           بديل نود "close session" اللي كانت في n8n */
         if (workflowStatus === "out_for_delivery" && updated && updated.phone) {
             try {
                 await db.run(
@@ -610,9 +634,8 @@ router.put("/orders/:id", async (req, res) => {
                     [updated.phone]
                 );
 
-                // 🧠 تصفير ذاكرة الشات بتاعة الـ AI عشان محادثة الأوردر القديم متأثرش على الجديد
                 const digitsOnly = updated.phone.replace(/\D/g, "");
-                const remoteJidNumber = "20" + digitsOnly.slice(1); // بيرجع الرقم لصيغة الواتساب (201055512301)
+                const remoteJidNumber = "20" + digitsOnly.slice(1);
                 await db.run(
                     `DELETE FROM n8n_chat_histories WHERE session_id LIKE $1`,
                     [`%${remoteJidNumber}%`]
@@ -629,6 +652,14 @@ router.put("/orders/:id", async (req, res) => {
             );
         }
 
+        // 🆕 محاولة إرسال رسالة الشحن الموحّدة (مركزية بالكامل، مرة واحدة لكل سلسلة)
+        if (workflowStatus === "out_for_delivery" && updated) {
+            const rootOrderId = updated.rootOrderId || updated.id;
+            trySendCombinedShippingWebhook(rootOrderId).catch((e) => {
+                console.error("❌ خطأ في إرسال رسالة الشحن الموحدة:", e.message);
+            });
+        }
+
         res.json({ ok: true, message: "تم تحديث الطلب بنجاح" });
     } catch (err) {
         console.error("❌ خطأ في تحديث الطلب:", err.message);
@@ -638,61 +669,6 @@ router.put("/orders/:id", async (req, res) => {
 
 /* ============================================================
     🆕 التنفيذ الجزئي (Partial Fulfillment + Order Splitting)
-    ------------------------------------------------------------
-    الصيدلي بيبعت قائمتين: availableItems (متوفرة عنده — بينفذها
-    ويقبضها بسعر price)، و unavailableItems (مش متوفرة عنده).
-
-    اللي بيحصل هنا بالترتيب:
-    1) الطلب الحالي يتحدث لحالة "partial" بالأصناف المتوفرة بس،
-       ويبدأ من خطوة "تم استلام الطلب" (workflowStatus = 'received')
-       بالظبط زي أي طلب اتقبل بالكامل بعد تأكيد الاستلام — وبعد كده
-       لازم يمشي في *نفس* خطوات الطلب العادي (تجهيز → جاهز → خرج
-       للتوصيل → تسليم) من واجهة الصيدلي، مش يقف عند الخطوة دي.
-       🆕 عشان كده executionCompleted بيتسجل هنا "0" (لسه شغال، مش
-       منتهي) بدل "1" — تمامًا زي أي طلب accepted لسه ماخلصش، عشان
-       كارت "ملخص الطلب" في الفرونت إند ميظهرش "تم تنفيذ الطلب
-       بنجاح" من أول لحظة وهو لسه في نص خطوات التجهيز والتوصيل.
-    2) لكل صنف مش متوفر: يتسجل في medicine_shortage_reports أنه
-       اتعلّم عليه "X" من الصيدلية دي، ثم نحسب عدد الصيدليات
-       المختلفة اللي اعتذرت عن نفس الصنف ضمن نفس سلسلة الطلب
-       (rootOrderId) من الأول. لو وصل العدد لحد SHORTAGE_THRESHOLD
-       (5 افتراضيًا) ولسه ماتبعتش تنبيه قبل كده، نبعت رسالة واتساب
-       للعميل تقوله إن الصنف ده ناقص من السوق، ونستبعده من أي
-       طلب جديد بعد كده.
-    3) الأصناف الباقية (اللي لسه معملهاش تنبيه نفاد) بيتكوّن منها
-       طلب جديد "pending" لنفس العميل، مرتبط بالطلب الأصلي عبر
-       parentOrderId/rootOrderId، وبيظهر فورًا في لوحة كل الصيادلة
-       ما عدا الصيدلية اللي عملت التنفيذ الجزئي.
-
-    ⚠️ (إصلاح جوهري) كل الخطوات دي بقت شغالة داخل transaction واحدة
-    (db.withTransaction) بدل ما تكون كويريز منفصلة autocommit. قبل
-    كده لو خطوة نصفها نجحت (مثلاً: الطلب الأصلي بقى "partial")
-    وبعدها خطوة تانية فشلت (زي إنشاء الطلب الابن)، مفيش rollback،
-    فالطلب كان بيفضل عالق partial من غير الطلب الابن، وأي محاولة
-    تانية كانت بترجع 409 "الطلب مش متاح" لأنه خلاص مش pending.
-    دلوقتي: لو أي خطوة فشلت، كل حاجة ترجع زي الأول (rollback)
-    والطلب الأصلي يفضل pending تمامًا، جاهز لإعادة المحاولة.
-
-    ⚠️ (إصلاح) توليد id صريح للطلب الابن بنفس طريقة generateUniqueOrderId
-    (كان العمود من غير DEFAULT فبيرمي null value violates not-null).
-
-    ⚠️ (إصلاح 🆕) عمود orders."executedAt" معرّف VARCHAR(100) مش
-    TIMESTAMP (شوف database.js). كان بيتبعتله NOW() مباشرة، وده
-    بيرمي خطأ نوع بيانات في بوستجريس (varchar لا يقبل timestamp)
-    فبتفشل الـ transaction كلها بـ 500 قبل ما توصل حتى لخطوة إنشاء
-    الطلب الابن. دلوقتي بنبعت string جاهز (ISO) بدل NOW().
-
-    ⚠️ (ملحوظة مهمة) لو عندك على الداتابيز unique index/constraint
-    زي "one_active_order_per_phone" بيمنع أكتر من طلب "نشط" لنفس
-    رقم الهاتف، لازم يكون مستثني الطلبات اللي ليها parentOrderId
-    (يعني الطلبات "الأبناء" الناتجة من هنا)، وإلا هذا الـ INSERT
-    هيفشل بخطأ "duplicate key value violates unique constraint"
-    لأن الطلب الأصلي (partial) لسه "نشط" في نفس اللحظة اللي بننشئ
-    فيها الطلب الابن بنفس رقم الهاتف. شوف database.js — تم إضافة
-    migration بيصلح الـ index ده تلقائيًا عند تشغيل السيرفر.
-
-    الـ webhooks (تنبيه نفاد الدواء) بتتبعت بعد نجاح الـ commit فقط،
-    عشان محاولة إرسالها متعملش rollback للعملية الأساسية لو فشلت.
     ============================================================ */
 router.post("/orders/:id/partial", async (req, res) => {
     try {
@@ -737,20 +713,9 @@ router.post("/orders/:id/partial", async (req, res) => {
                 throw conflictErr;
             }
 
-            // جذر سلسلة الطلب: لو الطلب ده أصلاً طرف في سلسلة (متفرّع من طلب أقدم) بنستخدم نفس
-            // rootOrderId بتاعه، وإلا هو نفسه الجذر (أول طلب في السلسلة)
             const rootOrderId = order.rootOrderId || order.id;
-
-            /* ⚠️ (إصلاح) "executedAt" عمود VARCHAR مش TIMESTAMP — لازم نبعتله
-               نص جاهز (ISO string) بدل NOW() عشان متطلعش خطأ نوع بيانات
-               توقف الـ transaction كلها. */
             const executedAtValue = new Date().toISOString();
 
-            /* 1) تحديث الطلب الحالي — تنفيذ جزئي بالأصناف المتوفرة فقط.
-               🆕 الطلب بيبدأ من "received" (تم استلام الطلب) بالظبط زي
-               الطلب العادي بعد تأكيد الاستلام، و"executionCompleted" = 0
-               عشان يفضل يتصرف كطلب "شغال" لسه في خطواته (تجهيز/جاهز/
-               خرج للتوصيل/تسليم) مش طلب "خلص" من أول لحظة. */
             await tx.run(
                 `UPDATE orders
                  SET status = 'partial', "pharmacyId" = $1, "pharmacyName" = $2,
@@ -773,9 +738,8 @@ router.post("/orders/:id/partial", async (req, res) => {
                 [id, `تنفيذ جزئي (${availableItems.length} من ${availableItems.length + unavailableItems.length} أدوية) — ${pharmacyName}`, "#0ea5e9"]
             );
 
-            // 2) تسجيل كل صنف ناقص + احتساب عدد الصيدليات المختلفة اللي اعتذرت عنه في نفس السلسلة
-            const shortageNow = [];          // أصناف بلغت حد التنبيه الآن لأول مرة (هيتبعت لهم رسالة بعد الـ commit)
-            const remainingForNewOrder = []; // أصناف هتتكرر في الطلب الجديد
+            const shortageNow = [];
+            const remainingForNewOrder = [];
 
             for (const rawItem of unavailableItems) {
                 const { name, unit } = splitMedicineItem(rawItem);
@@ -807,14 +771,12 @@ router.post("/orders/:id/partial", async (req, res) => {
                     );
                     shortageNow.push({ name, unit });
                 } else if (distinctCount >= SHORTAGE_THRESHOLD && alreadyAlerted) {
-                    // سبق التنبيه على الصنف ده قبل كده — يفضل مستبعد من أي طلب جديد
+                    // سبق التنبيه — يفضل مستبعد من أي طلب جديد
                 } else {
                     remainingForNewOrder.push({ name, unit });
                 }
             }
 
-            // 3) تسجيل إبلاغ العميل بأي صنف بلغ حد النفاد للتو في التايم لاين
-            //    (إرسال الـ webhook الفعلي بيتأجل لحد ما الـ transaction تنجح)
             for (const shortItem of shortageNow) {
                 await tx.run(
                     `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
@@ -822,8 +784,6 @@ router.post("/orders/:id/partial", async (req, res) => {
                 );
             }
 
-            // 4) إنشاء طلب جديد بالأصناف الناقصة المتبقية (لو فيه) — يظهر فورًا لكل الصيادلة
-            //    ما عدا الصيدلية الحالية (اللي أصلاً قالت إن الأصناف دي مش متوفرة عندها)
             let childOrderId = null;
             if (remainingForNewOrder.length) {
                 const newChildId = await generateUniqueOrderId(tx);
@@ -854,7 +814,6 @@ router.post("/orders/:id/partial", async (req, res) => {
                     [childOrderId, `طلب مكمل للطلب #${id} — أصناف ناقصة (${remainingForNewOrder.length}) أُعيد طرحها على باقي الصيادلة`, "#f59e0b"]
                 );
             } else if (shortageNow.length || unavailableItems.length) {
-                // كل الأصناف الناقصة إما اتبلّغ عنها نفاد من السوق أو خلاص اتبلّغ عنها قبل كده
                 await tx.run(
                     `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
                     [id, `كل الأصناف الناقصة أصبحت مُبلّغ عنها كنفاد من السوق — لا يوجد طلب جديد`, "#dc2626"]
@@ -864,7 +823,6 @@ router.post("/orders/:id/partial", async (req, res) => {
             return { order, rootOrderId, shortageNow, childOrderId };
         });
 
-        // 5) بعد نجاح الـ commit فقط: إرسال تنبيهات نفاد السوق لـ n8n (لا تؤثر على نجاح الطلب)
         for (const shortItem of txResult.shortageNow) {
             sendN8nWebhook(N8N_SHORTAGE_WEBHOOK_URL, {
                 type: "medicine_out_of_stock",
@@ -965,11 +923,7 @@ router.get("/orders-stats", async (req, res) => {
 });
 
 /* ============================================================
-    🆕 الأدوية الأكثر طلبًا — Top medicines (اسم الدواء منفصل عن العبوة)
-    ------------------------------------------------------------
-    مجمّعة من order_items.medicine_name مباشرة في الداتابيز، عشان
-    الحساب يبقى دقيق ومركزي بدل ما يتحسب في الفرونت إند من بيانات
-    قديمة فيها الاسم والعبوة ملزّقين.
+    الأدوية الأكثر طلبًا
     ============================================================ */
 router.get("/medicines-stats", async (req, res) => {
     try {
@@ -987,7 +941,7 @@ router.get("/medicines-stats", async (req, res) => {
 });
 
 /* ============================================================
-    🆕 الأصناف الناقصة من السوق حسب سلسلة طلب معينة (للتشخيص/العرض)
+    الأصناف الناقصة من السوق حسب سلسلة طلب معينة
     ============================================================ */
 router.get("/orders/:id/shortages", async (req, res) => {
     try {
@@ -1017,29 +971,21 @@ router.get("/orders/:id/shortages", async (req, res) => {
 
 /* ============================================================
     🔁 بروكسي: إرسال تحديث الشحن إلى n8n Webhook
-    يستقبل order_id (إجباري) و price (اختياري — السعر الإجمالي
-    الذي يدخله الصيدلي عند تنفيذ الطلب) ويمرّرهما معًا إلى n8n
+    ------------------------------------------------------------
+    🆕 (تعديل مهم) الإرسال الفعلي بقى مركزي بالكامل داخل
+    PUT /orders/:id عبر trySendCombinedShippingWebhook — عشان
+    يجمع كل الصيدليات المشتركة في نفس سلسلة الطلب (تنفيذ جزئي)
+    في رسالة واحدة بس لشركة الشحن، بدل ما كل صيدلية تبعت رسالتها
+    المستقلة بنفسها لحظة ما تدوس "خرج للتوصيل".
+
+    المسار ده باقي موجود بس للتوافق الرجعي مع نداء الفرونت إند
+    القديم (App.webhook.sendStatusUpdate في store.js لسه بينادي
+    عليه بعد كل "خرج للتوصيل")، وبيرجع نجاح فورًا من غير أي إرسال
+    تاني — عشان الرسالة الموحّدة اللي بعتها PUT /orders/:id
+    فعلاً متتكررش أو تتبعت مرتين بمحتوى مختلف.
     ============================================================ */
 router.post("/webhook/shipping", async (req, res) => {
-    const { order_id, price } = req.body;
-
-    if (!order_id) {
-        return res.status(400).json({ ok: false, error: "order_id مطلوب" });
-    }
-
-    const normalizedPrice = price !== undefined && price !== null && Number.isFinite(Number(price)) ? Number(price) : null;
-
-    console.log(`[Proxy] إرسال تحديث الشحن للطلب #${order_id} (السعر: ${normalizedPrice ?? "غير محدد"}) إلى n8n...`);
-
-    const result = await sendN8nWebhook(N8N_SHIPPING_WEBHOOK_URL, { order_id, price: normalizedPrice });
-
-    if (result.ok) {
-        console.log(`[Proxy ✓] تم إرسال التحديث بنجاح للطلب #${order_id}`);
-        res.json({ ok: true, message: "تم إرسال التحديث إلى n8n" });
-    } else {
-        console.error(`[Proxy ✗] فشل إرسال التحديث للطلب #${order_id}:`, result.error || result.body);
-        res.status(result.status || 500).json({ ok: false, error: result.error || `n8n رد بـ HTTP ${result.status}` });
-    }
+    res.json({ ok: true, message: "تم الاستلام — الإرسال الفعلي مركزي داخل السيرفر (رسالة موحّدة لكل الصيدليات)" });
 });
 
 module.exports = router;
