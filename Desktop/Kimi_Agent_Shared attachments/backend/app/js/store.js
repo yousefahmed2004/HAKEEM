@@ -240,7 +240,15 @@ window.App = window.App || {};
      المتوفرة/الناقصة والسعر، وياخد النتيجة (rootOrderId, childOrderId,
      shortageAlerts) ويعرضها، من غير أي منطق تقسيم محلي، عشان احتساب
      عدد الصيدليات المختلفة لازم يبقى دقيق ومركزي (race-safe) بدل ما
-     يتحسب في كل متصفح لوحده. */
+     يتحسب في كل متصفح لوحده.
+
+     ملاحظة 🆕🆕 (التنفيذ الجزئي كطلب عادي بالكامل): بعد التنفيذ الجزئي،
+     الطلب بيوصله workflowStatus = "received" مباشرة من الباك إند (بدل
+     "awaiting_receipt")، وبعد كده لازم يمشي في نفس خطوات أي طلب accepted
+     بالظبط (تجهيز → جاهز → خرج للتوصيل → تسليم) — عشان كده
+     updateOrderWorkflowStatus تحت بقت بتقبل status = "partial" بالظبط
+     زي "accepted"/"closed"، وكمان canManageWorkflow / canShowPhone في
+     pages1.js بقوا يشملوا "partial" كمان. */
 
   async function syncOrders() {
     try {
@@ -747,13 +755,20 @@ window.App = window.App || {};
          فلازم الشرط هنا يقبل "accepted" و"closed" مع بعض بالظبط زي
          confirmReceiptOrder فوق، وإلا أي خطوة تالية (زي "تم التسليم")
          هترفض بمجرد ما الطلب يتقفل عند "خرج للتوصيل".
+       — 🆕 (إصلاح جوهري) الشرط تحت بقى يقبل "partial" كمان بالظبط زي
+         "accepted"/"closed" — قبل كده الطلب الجزئي كان بيوصل لخطوة
+         "تم استلام الطلب" بس ويقف، من غير ما يقدر الصيدلي يكمل خطوات
+         (تجهيز/جاهز/خرج للتوصيل/تسليم) ولا يتسجل أي حاجة تانية في
+         التايملاين، عشان الدالة دي كانت بترفض أي طلب مش accepted/closed.
+         دلوقتي الطلب الجزئي بيتصرف بالظبط زي الطلب العادي المقبول
+         بالكامل من هنا لحد ما يتسلّم.
        — عند "خرج للتوصيل" يتم أيضًا إرسال إشعار الشحن إلى n8n عبر البروكسي
          (ده لسه محتاجينه بس عشان يوصل السعر والعنوان لشركة الشحن، مش
          عشان يقفل السيشن — القفل بقى مسؤولية الباك إند وحده)
        ============================================================ */
     updateOrderWorkflowStatus(id, user, workflowStatus, price) {
       const o = this.getOrder(id);
-      if (!o || !(o.status === "accepted" || o.status === "closed") || o.pharmacyId !== user.id) return null;
+      if (!o || !(o.status === "accepted" || o.status === "partial" || o.status === "closed") || o.pharmacyId !== user.id) return null;
       const workflowLabels = {
         received: "تم استلام الطلب",
         preparing: "جاري التجهيز",
