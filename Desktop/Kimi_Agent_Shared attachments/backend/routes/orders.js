@@ -18,6 +18,18 @@ function normalizeStatus(status) {
 }
 
 /* ============================================================
+    🆕 عتبة عدد مرات رفض الصنف الواحد قبل اعتباره غير متوفر في السوق
+    ------------------------------------------------------------
+    تُحسب لكل صنف (order_item) على حدة، وتتراكم عبر كل مرة يتكرر
+    فيها انقسام الطلب (نفس صف order_items بينتقل من طلب لآخر مع
+    قائمة الرافضين بتاعته). العتبة محدودة كمان بعدد الصيادلة
+    النشطين فعليًا في النظام لو كان أقل من القيمة الافتراضية،
+    عشان النظام يشتغل صح حتى لو عدد الصيادلة أقل من 5.
+    قابلة للتعديل عبر متغير البيئة MEDICINE_REJECT_THRESHOLD.
+    ============================================================ */
+const MEDICINE_REJECT_THRESHOLD = Number(process.env.MEDICINE_REJECT_THRESHOLD || 5);
+
+/* ============================================================
     🆕 فصل اسم الدواء عن نوع العبوة (علبة / شريط / أمبولة ... إلخ)
     ------------------------------------------------------------
     كان بيوصل من الشات بوت سترينج واحد ملزّق زي "Fucidin - علبة"،
@@ -60,9 +72,12 @@ function splitMedicineItem(raw) {
 }
 
 /* دالة مساعدة: استخراج قائمة الأدوية أو تفاصيل الروشتة من JSON
-    ترجّع دايمًا array من { name, unit } */
+    ترجّع دايمًا array من { id?, name, unit, rejectedBy } —
+    id و rejectedBy بيوصلوا بس لما المصدر order_items الفعلي
+    (عبر json_agg)؛ الطلبات القديمة/الخام مفيهاش id فتفضل تستخدم
+    الأسلوب الكلي (قبول/رفض للطلب كله) بدل تحديد الأصناف صنف بصنف. */
 function resolveItems(order) {
-    // 1) نتيجة json_agg من order_items — الشكل الجديد [{name, unit}]
+    // 1) نتيجة json_agg من order_items — الشكل الجديد [{id, name, unit, rejectedBy}]
     if (order.items) {
         let parsedItems = order.items;
         if (typeof parsedItems === "string") {
@@ -70,7 +85,24 @@ function resolveItems(order) {
         }
         if (Array.isArray(parsedItems) && parsedItems.length) {
             return parsedItems
-                .map((it) => (it && typeof it === "object" ? { name: it.name || "", unit: it.unit || "" } : splitMedicineItem(it)))
+                .map((it) => {
+                    if (it && typeof it === "object") {
+                        if (it.id != null) {
+                            let rejectedBy = it.rejectedBy;
+                            if (typeof rejectedBy === "string") {
+                                try { rejectedBy = JSON.parse(rejectedBy); } catch (e) { rejectedBy = []; }
+                            }
+                            return {
+                                id: it.id,
+                                name: it.name || "",
+                                unit: it.unit || "",
+                                rejectedBy: Array.isArray(rejectedBy) ? rejectedBy : [],
+                            };
+                        }
+                        return splitMedicineItem(it);
+                    }
+                    return splitMedicineItem(it);
+                })
                 .filter((it) => it.name);
         }
     }
@@ -159,6 +191,60 @@ function extractPrescriptionImage(order) {
     }
 
     return extractedImage;
+}
+
+/* ============================================================
+    🆕 دالة عامة لإرسال أي payload إلى n8n عبر HTTPS
+    (مستخدمة أيضًا في إبلاغ العميل بعدم توفر دواء معين، بنفس
+    أسلوب /webhook/shipping الموجود أصلًا)
+    ============================================================ */
+function sendToN8n(url, payload) {
+    return new Promise((resolve) => {
+        try {
+            const parsedUrl = new URL(url);
+            const postData = JSON.stringify(payload);
+            const options = {
+                hostname: parsedUrl.hostname,
+                port: parsedUrl.port || 443,
+                path: parsedUrl.pathname + parsedUrl.search,
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(postData) },
+            };
+            const reqHttps = https.request(options, (response) => {
+                let data = "";
+                response.on("data", (c) => { data += c; });
+                response.on("end", () => resolve({ status: response.statusCode, body: data }));
+            });
+            reqHttps.on("error", () => resolve({ status: 0, body: "" }));
+            reqHttps.write(postData);
+            reqHttps.end();
+        } catch (e) { resolve({ status: 0, body: "" }); }
+    });
+}
+
+/* ============================================================
+    🆕 إبلاغ العميل (عبر n8n/الشات بوت) إن صنف/أصناف بعينها أصبحت
+    غير متوفرة نهائيًا في السوق بعد رفضها من كل الصيادلة المتاحين
+    ------------------------------------------------------------
+    ⚠️ ده بروكسي "fire and forget" — مبيوقفش استجابة الـ API الأصلية
+    لو فشل، بس بيسجّل الخطأ في اللوج. المتغير N8N_UNAVAILABLE_WEBHOOK_URL
+    لازم يتظبط في بيئة السيرفر لرابط الـ workflow المسؤول عن إرسال
+    رسالة للعميل. لو مش موجود، بيستخدم رابط افتراضي مبني على نفس
+    الدومين المستخدم في تحديث الشحن.
+    ============================================================ */
+async function notifyCustomerUnavailable(phone, medicineNames) {
+    if (!phone || !medicineNames) return;
+    const url = process.env.N8N_UNAVAILABLE_WEBHOOK_URL || "https://hakeem-n8n.62wz9l.easypanel.host/webhook/UNAVAILABLE";
+    try {
+        const result = await sendToN8n(url, { phone, medicines: medicineNames });
+        if (result.status >= 200 && result.status < 300) {
+            console.log(`[Unavailable ✓] تم إبلاغ n8n بعدم توفر: ${medicineNames} — العميل ${phone}`);
+        } else {
+            console.error(`[Unavailable ✗] فشل إبلاغ n8n بعدم توفر (${medicineNames}) — HTTP ${result.status}`);
+        }
+    } catch (err) {
+        console.error("[Unavailable ✗] خطأ في إرسال إشعار عدم التوفر:", err.message);
+    }
 }
 
 /* ============================================================
@@ -269,7 +355,7 @@ router.get("/orders", async (req, res) => {
                 o.*,
                 o.items as "rawItems",
                 COALESCE(
-                    (SELECT json_agg(json_build_object('name', oi.medicine_name, 'unit', oi.unit) ORDER BY oi.id)
+                    (SELECT json_agg(json_build_object('id', oi.id, 'name', oi.medicine_name, 'unit', oi.unit, 'rejectedBy', oi.rejected_by) ORDER BY oi.id)
                      FROM order_items oi WHERE oi.order_id = o.id),
                     '[]'
                 ) as items,
@@ -315,6 +401,7 @@ router.get("/orders", async (req, res) => {
                 executionFailed: !!order.executionFailed,
                 executedAt: order.executedAt || null,
                 deliveredAt: order.deliveredAt || null,
+                splitFromOrderId: order.splitFromOrderId || null,
             };
         });
 
@@ -339,7 +426,7 @@ router.get("/orders/:id", async (req, res) => {
                 o.*,
                 o.items as "rawItems",
                 COALESCE(
-                    (SELECT json_agg(json_build_object('name', oi.medicine_name, 'unit', oi.unit) ORDER BY oi.id)
+                    (SELECT json_agg(json_build_object('id', oi.id, 'name', oi.medicine_name, 'unit', oi.unit, 'rejectedBy', oi.rejected_by) ORDER BY oi.id)
                      FROM order_items oi WHERE oi.order_id = o.id),
                     '[]'
                 ) as items,
@@ -388,6 +475,7 @@ router.get("/orders/:id", async (req, res) => {
             executionFailed: !!order.executionFailed,
             executedAt: order.executedAt || null,
             deliveredAt: order.deliveredAt || null,
+            splitFromOrderId: order.splitFromOrderId || null,
             timeline: timelineRows.length ? timelineRows.map((t) => ({
                 at: new Date(t.at).toISOString(),
                 text: t.text,
@@ -554,6 +642,132 @@ router.put("/orders/:id", async (req, res) => {
 });
 
 /* ============================================================
+    🆕 تحديد كل صنف على حدة (متوفر ✓ / غير متوفر ✗) من نفس الطلب
+    ------------------------------------------------------------
+    body: { pharmacyId, pharmacyName, decisions: [{id, decision:'accept'|'reject'}], price?, notes? }
+
+    - الأصناف "المتوفرة" (accept): تتحدد كنتيجة الطلب الحالي نفسه
+      (يتحول status لـ accepted لو كل الأصناف اتقبلت، أو partial
+      لو جزء منها بس).
+    - الأصناف "غير المتوفرة" (reject): بيتسجل عليها الصيدلي الرافض
+      في rejected_by (بيتراكم عبر كل انقسام لاحق لنفس الصنف)؛
+        • لو عدد الرافضين وصل للعتبة (أو لعدد كل الصيادلة النشطين
+          أيهما أصغر) → الصنف يتحول "unavailable" نهائيًا ولا يظهر
+          تاني، ويتم إبلاغ العميل تلقائيًا عبر n8n.
+        • غير كده → يتكوّن طلب جديد "pending" بنفس بيانات العميل
+          يحتوي هذه الأصناف فقط، ليظهر لباقي الصيادلة.
+    ============================================================ */
+router.patch("/orders/:id/checklist", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { pharmacyId, pharmacyName, decisions, price, notes } = req.body;
+
+        if (!pharmacyId || !pharmacyName || !Array.isArray(decisions) || !decisions.length) {
+            return res.status(400).json({ ok: false, error: "بيانات غير مكتملة" });
+        }
+
+        const order = await db.get("SELECT * FROM orders WHERE id = $1", [id]);
+        if (!order) return res.status(404).json({ ok: false, error: "الطلب غير موجود" });
+        if (normalizeStatus(order.status) !== "pending") {
+            return res.status(409).json({ ok: false, error: "لم يعد هذا الطلب متاحًا للتنفيذ" });
+        }
+
+        const items = await db.all("SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [id]);
+        if (!items.length) return res.status(400).json({ ok: false, error: "لا توجد أصناف في هذا الطلب" });
+        if (decisions.length !== items.length) {
+            return res.status(400).json({ ok: false, error: "يجب تحديد حالة كل صنف قبل التأكيد" });
+        }
+
+        const acceptedIds = decisions.filter((d) => d.decision === "accept").map((d) => String(d.id));
+        const rejectedIds = decisions.filter((d) => d.decision === "reject").map((d) => String(d.id));
+        const acceptedItems = items.filter((it) => acceptedIds.includes(String(it.id)));
+        const rejectedItems = items.filter((it) => rejectedIds.includes(String(it.id)));
+
+        if (!acceptedItems.length && !rejectedItems.length) {
+            return res.status(400).json({ ok: false, error: "لم يتم اتخاذ أي قرار صالح" });
+        }
+
+        const activePharmacists = await db.all("SELECT id FROM users WHERE role = 'pharmacist' AND status = 'active'");
+        const activeCount = activePharmacists.length || MEDICINE_REJECT_THRESHOLD;
+        const threshold = Math.min(MEDICINE_REJECT_THRESHOLD, activeCount);
+
+        const unavailableNow = [];
+        const stillPoolable = [];
+
+        for (const it of rejectedItems) {
+            let rejBy = Array.isArray(it.rejected_by) ? it.rejected_by : [];
+            if (!rejBy.includes(pharmacyId)) rejBy = [...rejBy, pharmacyId];
+
+            if (rejBy.length >= threshold) {
+                await db.run(`UPDATE order_items SET status = 'unavailable', "rejected_by" = $1::jsonb WHERE id = $2`, [JSON.stringify(rejBy), it.id]);
+                unavailableNow.push(it);
+            } else {
+                await db.run(`UPDATE order_items SET status = 'pending', "rejected_by" = $1::jsonb WHERE id = $2`, [JSON.stringify(rejBy), it.id]);
+                stillPoolable.push(it);
+            }
+        }
+
+        for (const it of acceptedItems) {
+            await db.run(`UPDATE order_items SET status = 'accepted' WHERE id = $1`, [it.id]);
+        }
+
+        /* الأصناف المقبولة تفضل على نفس رقم الطلب الحالي */
+        if (acceptedItems.length) {
+            const finalStatus = acceptedItems.length === items.length ? "accepted" : "partial";
+            await db.run(
+                `UPDATE orders SET status = $1, "pharmacyId" = $2, "pharmacyName" = $3, price = $4, notes = $5,
+                    "workflowStatus" = 'awaiting_receipt', "executionPending" = 1, "executionCompleted" = 0,
+                    "executionFailed" = 0, "executionDeadline" = $6, "updatedAt" = NOW()
+                 WHERE id = $7`,
+                [finalStatus, pharmacyId, pharmacyName, price || null, notes || null, new Date(Date.now() + 5 * 60 * 1000).toISOString(), id]
+            );
+            await db.run(`INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [id, `تم قبول ${acceptedItems.length} من ${items.length} أصناف — ${pharmacyName}`, "#10b981"]);
+        } else {
+            /* لم يقبل أي صنف — هذا السجل يُغلق، والأصناف انتقلت لطلب جديد أو أصبحت غير متوفرة */
+            await db.run(`UPDATE orders SET status = 'rejected', "updatedAt" = NOW() WHERE id = $1`, [id]);
+            await db.run(`INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [id, `تم الاعتذار عن جميع الأصناف — ${pharmacyName}`, "#ef4444"]);
+        }
+
+        /* الأصناف اللي لسه ممكن تتعرض على صيادلة تانية — بتتنقل لطلب جديد pending */
+        let newOrderId = null;
+        if (stillPoolable.length) {
+            const inserted = await db.run(
+                `INSERT INTO orders ("customerName", phone, address, "prescriptionImage", status, "splitFromOrderId", "createdAt")
+                 VALUES ($1, $2, $3, $4, 'pending', $5, NOW()) RETURNING id`,
+                [order.customerName, order.phone, order.address, order.prescriptionImage, id]
+            );
+            newOrderId = inserted.id;
+            for (const it of stillPoolable) {
+                await db.run(`UPDATE order_items SET order_id = $1, status = 'pending' WHERE id = $2`, [newOrderId, it.id]);
+            }
+            await db.run(`INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [newOrderId, `أصناف أُعيدت لقائمة الانتظار بعد اعتذار ${pharmacyName}`, "#f59e0b"]);
+        }
+
+        /* الأصناف اللي وصلت لعتبة الرفض — تصبح غير متوفرة نهائيًا ويتم إبلاغ العميل */
+        if (unavailableNow.length) {
+            const names = unavailableNow.map((it) => it.medicine_name).join("، ");
+            await db.run(`INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [id, `أصبحت الأصناف التالية غير متوفرة في السوق: ${names}`, "#dc2626"]);
+            notifyCustomerUnavailable(order.phone, names);
+        }
+
+        res.json({
+            ok: true,
+            acceptedCount: acceptedItems.length,
+            rejectedCount: rejectedItems.length,
+            unavailableCount: unavailableNow.length,
+            newOrderId,
+        });
+    } catch (err) {
+        console.error("❌ خطأ في تحديد الأصناف:", err.message);
+        res.status(500).json({ ok: false, error: "فشل في تنفيذ العملية" });
+    }
+});
+
+/* ============================================================
     رفض الطلب (صيدلي)
     ============================================================ */
 router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
@@ -663,43 +877,14 @@ router.post("/webhook/shipping", async (req, res) => {
     console.log(`[Proxy] إرسال تحديث الشحن للطلب #${order_id} (السعر: ${normalizedPrice ?? "غير محدد"}) إلى n8n...`);
 
     try {
-        const parsedUrl = new URL(n8nUrl);
-        const postData = JSON.stringify({ order_id, price: normalizedPrice });
-
-        const options = {
-            hostname: parsedUrl.hostname,
-            port: parsedUrl.port || 443,
-            path: parsedUrl.pathname + parsedUrl.search,
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Content-Length": Buffer.byteLength(postData),
-            },
-        };
-
-        const result = await new Promise((resolve, reject) => {
-            const reqHttps = https.request(options, (response) => {
-                let data = "";
-                response.on("data", (chunk) => { data += chunk; });
-                response.on("end", () => {
-                    resolve({ status: response.statusCode, body: data });
-                });
-            });
-
-            reqHttps.on("error", (err) => {
-                reject(err);
-            });
-
-            reqHttps.write(postData);
-            reqHttps.end();
-        });
+        const result = await sendToN8n(n8nUrl, { order_id, price: normalizedPrice });
 
         if (result.status >= 200 && result.status < 300) {
             console.log(`[Proxy ✓] تم إرسال التحديث بنجاح للطلب #${order_id}`);
             res.json({ ok: true, message: "تم إرسال التحديث إلى n8n" });
         } else {
             console.error(`[Proxy ✗] n8n رد بـ HTTP ${result.status}: ${result.body}`);
-            res.status(result.status).json({ ok: false, error: `n8n رد بـ HTTP ${result.status}` });
+            res.status(result.status || 500).json({ ok: false, error: `n8n رد بـ HTTP ${result.status}` });
         }
     } catch (err) {
         console.error("[Proxy ✗] خطأ في الاتصال بـ n8n:", err.message);
