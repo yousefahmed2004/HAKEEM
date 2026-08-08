@@ -524,8 +524,8 @@ App.pages = App.pages || {};
             </div>
             <div style="display:flex;gap:9px;flex-wrap:wrap">
               ${canConfirmReceipt ? `<button class="btn btn-success" id="act-receive">${icon("checkCircle", 17)} تأكيد الاستلام</button>` : ""}
-              ${canAct ? `<button class="btn btn-success" id="act-accept" ${capacityReached ? "disabled" : ""}>${icon("checkCircle", 17)} قبول الطلب</button>` : ""}
-              
+              ${canAct ? `<button class="btn btn-success" id="act-accept" ${capacityReached ? "disabled" : ""}>${icon("checkCircle", 17)} قبول الطلب بالكامل</button>` : ""}
+              ${canAct && o.items.length > 1 ? `<button class="btn btn-soft" id="act-checklist" ${capacityReached ? "disabled" : ""}>${icon("split", 17)} تحديد الأصناف المتوفرة</button>` : ""}
               ${canAct ? `<button class="btn btn-danger-soft" id="act-reject" ${capacityReached ? "disabled" : ""}>${icon("xCircle", 17)} لا أستطيع التنفيذ</button>` : ""}
             </div>
           </div>
@@ -604,52 +604,101 @@ App.pages = App.pages || {};
   }
 
   /* ============================================================
-     نافذة التنفيذ الجزئي — تحديد الأصناف المتوفرة والسعر
+     🆕 نافذة "تحديد الأصناف المتوفرة" — شيكليست ✓ / ✗ لكل صنف
      ------------------------------------------------------------
-     🆕 بما إن o.items ممكن يبقوا objects {name, unit} دلوقتي، الـ
-     checkbox value بقى index الصنف جوه o.items بدل قيمة نصية مباشرة
-     (عشان attribute الـ value لازم يبقى سترينج بسيط)، وبعدين بنرجع
-     نجيب العنصر الأصلي بالـ index وقت الحفظ — ده كمان بيحافظ على
-     نفس reference جوه o.items عشان فلترة unavailableItems (فوق في
-     partialOrder داخل store.js) تفضل شغالة بنفس منطق المقارنة.
+     كل صنف بيتحدد له قرار مستقل: متوفر (✓) أو غير متوفر (✗).
+     - الأصناف المتوفرة تتقفل على نفس رقم الطلب (accepted/partial).
+     - الأصناف غير المتوفرة يتكفل بيها الباك إند: إما تتحول لطلب
+       جديد "pending" لباقي الصيادلة، أو لو وصلت لعتبة الرفض
+       تتحول "غير متوفرة نهائيًا" ويتم إبلاغ العميل تلقائيًا.
+     - يتطلب أن تكون الأصناف قادمة من order_items الحقيقية (لها id)؛
+       الطلبات القديمة جدًا بدون id تُستثنى وتوجّه لاستخدام أزرار
+       القبول الكامل / الاعتذار الكامل بدلاً من ذلك.
      ============================================================ */
-  function openPartialModal(o, user) {
+  function openChecklistModal(o, user) {
+    const hasIds = o.items.every((m) => m && typeof m === "object" && m.id != null);
+
     modal({
-      title: `تنفيذ جزئي — الطلب #${esc(o.id)}`,
+      title: `تحديد الأصناف — الطلب #${esc(o.id)}`,
       icon: "split",
-      body: `
-        <p class="small muted" style="margin-bottom:12px">حدد الأدوية المتوفرة لديك من أصل ${o.items.length} صنف</p>
-        <div id="pm-items" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
-          ${o.items.map((m, i) => `
-            <label style="display:flex;align-items:center;gap:9px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer">
-              <input type="checkbox" class="pm-item-check" value="${i}" data-idx="${i}" checked />
+      body: !hasIds
+        ? `<div class="login-error show">${icon("alert", 17)} هذا الطلب لا يدعم تحديد الأصناف صنف بصنف (طلب قديم) — استخدم زر «قبول الطلب بالكامل» أو «لا أستطيع التنفيذ» بدلاً من ذلك.</div>`
+        : `
+        <p class="small muted" style="margin-bottom:12px">حدد لكل صنف: متوفر لديك ✓ أو غير متوفر ✗</p>
+        <div id="cl-items" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+          ${o.items.map((m) => `
+            <div class="cl-row" data-id="${esc(String(m.id))}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r-sm)">
               <span>${medLabel(m)}</span>
-            </label>`).join("")}
+              <div style="display:flex;gap:6px">
+                <button type="button" class="icon-btn cl-yes" title="متوفر" style="width:34px;height:34px;border-color:#10b981;color:#10b981;opacity:.55">${icon("check", 16)}</button>
+                <button type="button" class="icon-btn cl-no" title="غير متوفر" style="width:34px;height:34px;border-color:#ef4444;color:#ef4444;opacity:.55">${icon("x", 16)}</button>
+              </div>
+            </div>`).join("")}
         </div>
-        <div class="field" style="margin-bottom:10px"><label>السعر الإجمالي (جنيه)</label>
-          <input class="input" id="pm-price" type="number" min="0" placeholder="مثال: 150" /></div>
+        <div class="field" id="cl-price-field" style="margin-bottom:10px;display:none"><label>السعر الإجمالي للأصناف المتوفرة (جنيه)</label>
+          <input class="input" id="cl-price" type="number" min="0" placeholder="مثال: 150" /></div>
         <div class="field" style="margin:0"><label>ملاحظات (اختياري)</label>
-          <input class="input" id="pm-notes" placeholder="أي ملاحظات إضافية..." /></div>
-        <div id="pm-error" class="login-error" style="margin-top:12px"></div>`,
-      footer: `
-        <button class="btn btn-primary" id="pm-save">${icon("check", 16)} تأكيد التنفيذ الجزئي</button>
-        <button class="btn btn-ghost" id="pm-cancel">إلغاء</button>`,
+          <input class="input" id="cl-notes" placeholder="أي ملاحظات إضافية..." /></div>
+        <div id="cl-error" class="login-error" style="margin-top:12px"></div>`,
+      footer: !hasIds
+        ? `<button class="btn btn-ghost" id="cl-cancel">إغلاق</button>`
+        : `
+        <button class="btn btn-primary" id="cl-save">${icon("check", 16)} تأكيد</button>
+        <button class="btn btn-ghost" id="cl-cancel">إلغاء</button>`,
       onOpen(overlay, close) {
-        overlay.querySelector("#pm-cancel").onclick = close;
-        overlay.querySelector("#pm-save").onclick = () => {
-          const err = overlay.querySelector("#pm-error");
+        overlay.querySelector("#cl-cancel").onclick = close;
+        if (!hasIds) return;
+
+        const rows = [...overlay.querySelectorAll(".cl-row")];
+        const state = {}; // itemId -> 'accept' | 'reject'
+        const priceField = overlay.querySelector("#cl-price-field");
+        const updatePriceVisibility = () => {
+          priceField.style.display = Object.values(state).includes("accept") ? "" : "none";
+        };
+
+        rows.forEach((row) => {
+          const id = row.dataset.id;
+          const yes = row.querySelector(".cl-yes");
+          const no = row.querySelector(".cl-no");
+          const paint = () => {
+            const isAccept = state[id] === "accept";
+            const isReject = state[id] === "reject";
+            yes.style.background = isAccept ? "#10b981" : "";
+            yes.style.color = isAccept ? "#fff" : "#10b981";
+            yes.style.opacity = isAccept ? "1" : ".55";
+            no.style.background = isReject ? "#ef4444" : "";
+            no.style.color = isReject ? "#fff" : "#ef4444";
+            no.style.opacity = isReject ? "1" : ".55";
+          };
+          yes.onclick = () => { state[id] = "accept"; paint(); updatePriceVisibility(); };
+          no.onclick = () => { state[id] = "reject"; paint(); updatePriceVisibility(); };
+        });
+
+        overlay.querySelector("#cl-save").onclick = async () => {
+          const err = overlay.querySelector("#cl-error");
           const fail = (m) => { err.textContent = m; err.classList.add("show"); };
-          const checkedIdx = [...overlay.querySelectorAll(".pm-item-check:checked")].map((c) => Number(c.value));
-          const checked = checkedIdx.map((i) => o.items[i]);
-          const price = Number(overlay.querySelector("#pm-price").value);
-          const notes = overlay.querySelector("#pm-notes").value.trim();
-          if (!checked.length) return fail("حدد صنفًا واحدًا على الأقل كمتوفر");
-          if (checked.length === o.items.length) return fail("لو كل الأصناف متوفرة استخدم زر «قبول الطلب» بدلاً من التنفيذ الجزئي");
-          if (!Number.isFinite(price) || price <= 0) return fail("أدخل سعرًا صحيحًا أكبر من صفر");
-          const result = S().partialOrder(o.id, user, checked, price, notes);
+          const decidedIds = Object.keys(state);
+          if (decidedIds.length < rows.length) return fail("حدد حالة كل صنف (متوفر / غير متوفر) قبل التأكيد");
+
+          const decisions = decidedIds.map((id) => ({ id, decision: state[id] }));
+          const anyAccepted = decisions.some((d) => d.decision === "accept");
+          const priceInput = overlay.querySelector("#cl-price").value;
+          const price = Number(priceInput);
+          if (anyAccepted && (!Number.isFinite(price) || price <= 0)) return fail("أدخل سعرًا صحيحًا للأصناف المتوفرة");
+          const notes = overlay.querySelector("#cl-notes").value.trim();
+
+          const saveBtn = overlay.querySelector("#cl-save");
+          saveBtn.disabled = true;
+          const result = await S().partialChecklist(o.id, user, decisions, anyAccepted ? price : null, notes);
+          saveBtn.disabled = false;
           if (!result) return fail("تعذر تنفيذ العملية، حاول مرة أخرى");
+
           close();
-          toast("تم تنفيذ الطلب جزئيًا", `#${o.id}`, "success");
+          const rejectedCount = decisions.filter((d) => d.decision === "reject").length;
+          const msg = rejectedCount
+            ? `تم الحفظ — ${result.unavailableCount ? `${result.unavailableCount} صنف أصبح غير متوفر في السوق` : "الأصناف غير المتوفرة أُعيدت لقائمة الانتظار"}`
+            : `#${o.id}`;
+          toast("تم تحديث الطلب", msg, "success");
           App.router.refresh();
         };
       },
@@ -787,9 +836,10 @@ App.pages = App.pages || {};
         });
       };
 
-      /* التنفيذ الجزئي — يفتح نافذة لاختيار الأصناف المتوفرة والسعر (تعمل كتأكيد بحد ذاتها) */
-      const partialBtn = document.getElementById("act-partial");
-      if (partialBtn) partialBtn.onclick = () => openPartialModal(o, user);
+      /* 🆕 تحديد الأصناف المتوفرة صنف بصنف — يفتح نافذة الشيكليست
+         (تعمل كتأكيد بحد ذاتها ولا تحتاج confirmModal إضافي) */
+      const checklistBtn = document.getElementById("act-checklist");
+      if (checklistBtn) checklistBtn.onclick = () => openChecklistModal(o, user);
 
       /* أزرار تغيير حالة سير العمل (استلام / تجهيز / جاهز / خرج للتوصيل / تسليم / إلغاء)
          — ترتيب إجباري: خطوة واحدة تالية فقط متاحة، وكل خطوة تتطلب تأكيدًا نهائيًا
