@@ -479,9 +479,12 @@ App.pages = App.pages || {};
     const canAct = user.role === "pharmacist" && o.status === "pending" && !o.rejectedBy.includes(user.id);
     const canConfirmReceipt = user.role === "pharmacist" && o.status === "accepted" && o.executionPending && o.pharmacyId === user.id;
     /* بعد التعديل: "closed" هي امتداد طبيعي لـ "accepted" (الطلب خرج للتوصيل واتقفل)
-       فلازم الصيدلي المسؤول عنه يفضل يقدر يشوف تفاصيله ويكمل خطوة "تم التسليم" لو لسه ماوصلتش */
-    const canManageWorkflow = user.role === "pharmacist" && (o.status === "accepted" || o.status === "closed") && o.pharmacyId === user.id;
-    const canShowPhone = user.role === "admin" || ((o.status === "accepted" || o.status === "closed") && o.pharmacyId === user.id);
+       فلازم الصيدلي المسؤول عنه يفضل يقدر يشوف تفاصيله ويكمل خطوة "تم التسليم" لو لسه ماوصلتش.
+       🆕 وكمان "partial" (تنفيذ جزئي) لازم تتعامل معاملة "accepted" بالظبط في كل حاجة
+       تخص إدارة الـ workflow — عشان الطلب الجزئي يفضل ماشي في نفس خطوات الطلب العادي
+       (تجهيز → جاهز → خرج للتوصيل → تسليم) بدل ما يقف عند خطوة الاستلام بس. */
+    const canManageWorkflow = user.role === "pharmacist" && (o.status === "accepted" || o.status === "partial" || o.status === "closed") && o.pharmacyId === user.id;
+    const canShowPhone = user.role === "admin" || ((o.status === "accepted" || o.status === "partial" || o.status === "closed") && o.pharmacyId === user.id);
     const capacityReached = user.role === "pharmacist" && o.status === "pending" && !S().canAcceptOrder(user);
     const workflowStateMap = { awaiting_receipt: "في انتظار تأكيد الاستلام", received: "تم استلام الطلب", preparing: "جاري التجهيز", ready: "جاهز للتوصيل", out_for_delivery: "خرج للتوصيل", delivered: "تم التسليم", cancelled: "إلغاء الطلب" };
     const executionHint = o.executionPending && o.executionDeadline
@@ -862,7 +865,9 @@ App.pages = App.pages || {};
       /* أزرار تغيير حالة سير العمل (استلام / تجهيز / جاهز / خرج للتوصيل / تسليم / إلغاء)
          — ترتيب إجباري: خطوة واحدة تالية فقط متاحة، وكل خطوة تتطلب تأكيدًا نهائيًا
          — عند "خرج للتوصيل": لو الطلب مقبول بالكامل بدون سعر، تُفتح نافذة السعر أولًا
-         — نفس اللحظة دي الطلب بيتقفل تلقائيًا (status = "closed") من الباك إند */
+         — نفس اللحظة دي الطلب بيتقفل تلقائيًا (status = "closed") من الباك إند
+         — 🆕 نفس الأزرار دي بقت شغالة بالظبط لطلب "partial" (تنفيذ جزئي) كمان،
+           عشان يمشي في نفس خطوات الطلب العادي بالظبط (شوف canManageWorkflow فوق) */
       document.querySelectorAll("[data-workflow]").forEach((btn) => {
         btn.onclick = () => {
           const key = btn.dataset.workflow;
