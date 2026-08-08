@@ -81,17 +81,7 @@ const all = async (sql, params = []) => {
    🆕 withTransaction — بتشغّل مجموعة كويريز مرتبطة ببعض داخل
    BEGIN/COMMIT/ROLLBACK واحدة على نفس الاتصال (client)، عشان لو
    أي خطوة فشلت في النص، كل التعديلات السابقة ترجع زي ما كانت
-   (rollback) بدل ما تفضل عالقة بشكل جزئي (زي مشكلة "الطلب الأصلي
-   بقى partial بس الطلب الابن ما اتعملش" في التنفيذ الجزئي).
-   ------------------------------------------------------------
-   الاستخدام:
-       const result = await db.withTransaction(async (tx) => {
-           await tx.run("UPDATE ...", [...]);
-           const row = await tx.get("SELECT ...", [...]);
-           return row;
-       });
-   لو الدالة اللي جوه رمت أي error، بيتعمل ROLLBACK تلقائيًا
-   والـ error بيتعاد رميه لفوق عشان الـ route handler يمسكه.
+   (rollback) بدل ما تفضل عالقة بشكل جزئي.
    ============================================================ */
 async function withTransaction(work) {
     const conn = await getPool();
@@ -135,45 +125,20 @@ async function withTransaction(work) {
    constraint اسمه "one_active_order_per_phone" لو موجود على
    عمود orders.phone من غير ما يستثني الطلبات "الأبناء" الناتجة
    عن التنفيذ الجزئي (الطلبات اللي ليها parentOrderId).
-   ------------------------------------------------------------
-   السبب: في التنفيذ الجزئي (POST /orders/:id/partial) الطلب
-   الأصلي بيتحول لحالة "partial" (لسه معدود "نشط")، وفي نفس
-   اللحظة بننشئ طلب "ابن" جديد بحالة "pending" بنفس رقم هاتف
-   العميل عشان يحمل الأصناف الناقصة. لو الـ index الموجود على
-   قاعدة البيانات بيمنع أكتر من طلب نشط واحد لكل رقم هاتف من
-   غير أي استثناء، الـ INSERT بتاع الطلب الابن هيفشل بخطأ:
-       duplicate key value violates unique constraint
-       "one_active_order_per_phone"
-
-   الدالة دي:
-   1) تتأكد الأول لو فيه constraint/index بالاسم ده أصلاً (بعض
-      البيئات ممكن ماتكونش مضافاه، فمفيش داعي تعمل حاجة).
-   2) لو موجود، تفحص تعريفه الحالي (pg_get_constraintdef أو
-      pg_get_indexdef) وتشوف لو فعلاً بيستثني الطلبات اللي ليها
-      "parentOrderId" — لو مستثنيها خلاص متعملش حاجة (idempotent،
-      آمن تشغّلها كل مرة السيرفر بيقوم من غير أي أثر جانبي).
-   3) لو مش مستثنيها، تحذف الـ index/constraint القديم وتنشئ
-      واحد جديد بنفس الاسم، بيفرض: طلب "مستقل" واحد بس نشط لكل
-      رقم هاتف (الطلبات اللي parentOrderId عندها NULL)، بينما
-      الطلبات الأبناء (المتفرعة من تنفيذ جزئي) مسموح تتواجد مع
-      الطلب الأب من غير ما تصطدم بالقاعدة دي.
    ============================================================ */
 async function fixActiveOrderPhoneIndex() {
     try {
-        // هل فيه constraint بالاسم ده؟ (مضاف كـ table constraint)
         const constraintRow = await get(
             `SELECT pg_get_constraintdef(oid) AS def
              FROM pg_constraint
              WHERE conname = 'one_active_order_per_phone'`
         );
 
-        // هل فيه index بالاسم ده؟ (مضاف مباشرة كـ CREATE UNIQUE INDEX)
         const indexRow = await get(
             `SELECT indexdef FROM pg_indexes WHERE indexname = 'one_active_order_per_phone'`
         );
 
         if (!constraintRow && !indexRow) {
-            // مفيش حاجة بالاسم ده على الإطلاق — مفيش داعي نعمل أي تعديل
             return;
         }
 
@@ -181,20 +146,16 @@ async function fixActiveOrderPhoneIndex() {
         const alreadyExcludesChildren = currentDef.includes('"parentOrderId"');
 
         if (alreadyExcludesChildren) {
-            // خلاص متعدّل قبل كده — idempotent، مفيش داعي نكرر العملية
             return;
         }
 
         console.log('🔧 إصلاح "one_active_order_per_phone" ليستثني الطلبات المتفرعة من التنفيذ الجزئي...');
 
-        // احذف أي نسخة قديمة (سواء كانت constraint أو index مباشر)
         if (constraintRow) {
             await run(`ALTER TABLE orders DROP CONSTRAINT IF EXISTS one_active_order_per_phone`);
         }
         await run(`DROP INDEX IF EXISTS one_active_order_per_phone`);
 
-        // أنشئ index جزئي جديد: طلب "مستقل" واحد بس نشط لكل رقم هاتف
-        // (الطلبات اللي ليها parentOrderId مستثناة تمامًا من القاعدة دي)
         await run(`
             CREATE UNIQUE INDEX one_active_order_per_phone
             ON orders (phone)
@@ -235,7 +196,6 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // 1.5. --- ensure maxActiveOrders / address columns exist (for pre-existing users tables) ---
         await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "maxActiveOrders" INT DEFAULT 3`);
         await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS address VARCHAR(500) DEFAULT NULL`);
 
@@ -269,7 +229,7 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // 2.5. --- order_items table (Required by orders.js queries: json_agg on order_items) ---
+        // 2.5. --- order_items table ---
         await run(`
             CREATE TABLE IF NOT EXISTS order_items (
                 id SERIAL PRIMARY KEY,
@@ -281,20 +241,12 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // 2.6. --- (جديد) عمود "unit" لتخزين نوع العبوة (علبة / شريط / أمبولة ... إلخ)
-        //       منفصلًا عن اسم الدواء نفسه، عشان التوب سيرش وإحصائيات الأدوية
-        //       تجمع كل الأصناف تحت اسم الدواء الحقيقي بدون ما يتلخبط بالعبوة.
         await run(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT NULL`);
 
-        // 2.7. --- أعمدة rootOrderId / parentOrderId على جدول orders
-        //       دول مطلوبين لمنطق "التنفيذ الجزئي" (Order Splitting) في
-        //       routes/orders.js (POST /orders/:id/partial)
         await run(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "rootOrderId" VARCHAR(100) DEFAULT NULL`);
         await run(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "parentOrderId" VARCHAR(100) DEFAULT NULL`);
 
-        // 2.8. --- جدول تسجيل اعتذار كل صيدلية عن كل صنف ناقص ضمن سلسلة الطلب
-        //       (rootOrderId) — بيُستخدم في حساب عدد الصيدليات المختلفة اللي
-        //       اعتذرت عن نفس الصنف عشان نقرر لو وصلنا لحد "نفاد من السوق"
+        // 2.8. --- جدول تسجيل اعتذار كل صيدلية عن كل صنف ناقص ---
         await run(`
             CREATE TABLE IF NOT EXISTS medicine_shortage_reports (
                 id SERIAL PRIMARY KEY,
@@ -306,8 +258,7 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // 2.9. --- جدول تسجيل إرسال تنبيه "نفاد من السوق" للعميل
-        //       (مرة واحدة بس لكل صنف/سلسلة طلب)
+        // 2.9. --- جدول تسجيل إرسال تنبيه "نفاد من السوق" للعميل ---
         await run(`
             CREATE TABLE IF NOT EXISTS medicine_shortage_alerts (
                 id SERIAL PRIMARY KEY,
@@ -318,72 +269,26 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // 3. --- order_timeline table ---
+        /* ============================================================
+           🆕 2.10 — جدول shipping_notifications
+           ------------------------------------------------------------
+           بيضمن إن "رسالة الشحن الموحّدة" (اللي بتجمع كل الصيدليات
+           المشتركة في نفس سلسلة الطلب rootOrderId) تتبعت *مرة واحدة
+           بس* لشركة الشحن، حتى لو صيدليتين ضغطوا "خرج للتوصيل" في
+           نفس اللحظة بالضبط (race condition). الـ UNIQUE constraint
+           على "rootOrderId" هو اللي بيضمن كده على مستوى قاعدة
+           البيانات نفسها — أول INSERT ينجح، والتاني (لو حصل بالتوازي)
+           بيترفض تلقائيًا بـ ON CONFLICT DO NOTHING.
+           ============================================================ */
         await run(`
-            CREATE TABLE IF NOT EXISTS order_timeline (
+            CREATE TABLE IF NOT EXISTS shipping_notifications (
                 id SERIAL PRIMARY KEY,
-                "orderId" VARCHAR(100) NOT NULL,
-                at TIMESTAMP NOT NULL,
-                text TEXT NOT NULL,
-                color VARCHAR(50) DEFAULT NULL,
-                CONSTRAINT fk_timeline_order FOREIGN KEY ("orderId") REFERENCES orders(id)
+                "rootOrderId" VARCHAR(100) UNIQUE NOT NULL,
+                "createdAt" TIMESTAMP NOT NULL DEFAULT NOW()
             )
         `);
 
-        // 4. --- settings table ---
-        await run(`
-            CREATE TABLE IF NOT EXISTS settings (
-                id SERIAL PRIMARY KEY,
-                "webhookUrl" VARCHAR(500) DEFAULT NULL,
-                "apiKey" VARCHAR(255) DEFAULT NULL,
-                "notifySound" SMALLINT DEFAULT 1,
-                "notifyBrowser" SMALLINT DEFAULT 0,
-                simulate SMALLINT DEFAULT 1,
-                "pharmacyName" VARCHAR(255) DEFAULT NULL,
-                "createdAt" TIMESTAMP NOT NULL,
-                "updatedAt" TIMESTAMP NOT NULL
-            )
-        `);
-
-        // 5. --- customers table ---
-        await run(`
-            CREATE TABLE IF NOT EXISTS customers (
-                id SERIAL PRIMARY KEY,
-                phone_number VARCHAR(50),
-                name VARCHAR(150),
-                address TEXT,
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW(),
-                session_status VARCHAR(50),
-                custom_phone TEXT,
-                remote_jid TEXT
-            )
-        `);
-
-        // 6. --- n8n_chat_histories table ---
-        await run(`
-            CREATE TABLE IF NOT EXISTS n8n_chat_histories (
-                id SERIAL PRIMARY KEY,
-                session_id VARCHAR(255),
-                message JSONB
-            )
-        `);
-
-        // 7. --- pharmacies table ---
-        await run(`
-            CREATE TABLE IF NOT EXISTS pharmacies (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(150),
-                location TEXT,
-                phone VARCHAR(50),
-                is_active BOOLEAN DEFAULT true,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        `);
-
-        // 8. --- 🆕 إصلاح تلقائي لـ unique index "one_active_order_per_phone"
-        //       (لو موجود على البيئة) عشان يستثني الطلبات المتفرعة من
-        //       التنفيذ الجزئي — راجع تعليق الدالة فوق لتفاصيل السبب.
+        // 8. --- إصلاح تلقائي لـ unique index "one_active_order_per_phone" ---
         await fixActiveOrderPhoneIndex();
 
         console.log("✅ تم إنشاء/التحقق من جميع الجداول بنجاح");
