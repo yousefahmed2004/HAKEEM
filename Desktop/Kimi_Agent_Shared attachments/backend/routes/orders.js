@@ -793,15 +793,31 @@ router.patch("/orders/:id/checklist", async (req, res) => {
             await db.run(`UPDATE order_items SET status = 'accepted' WHERE id = $1`, [it.id]);
         }
 
-        /* الأصناف المقبولة تفضل على نفس رقم الطلب الحالي */
+        /* الأصناف المقبولة تفضل على نفس رقم الطلب الحالي
+           🆕 لازم نخزّن availableItems/unavailableItems على الطلب نفسه هنا،
+           وإلا صفحة تفاصيل الطلب هتفضل تعرض "الأدوية المتوفرة (0)" فاضية
+           حتى لو الطلب اتقبل فعليًا عن طريق الشيكليست — لأن medsSection في
+           الفرونت إند (pages1.js) بتقرا من الأعمدة دي مباشرة مش من order_items.
+           availableItems = الأصناف المقبولة في نفس الطلب.
+           unavailableItems = الأصناف اللي وصلت لعتبة الرفض وبقيت "غير متوفرة
+           نهائيًا" على نفس الـ order_id (unavailableNow) — أما الأصناف اللي
+           لسه ممكن تتعرض على صيادلة تانية (stillPoolable) فبتتنقل لطلب جديد
+           منفصل، فمالهاش لازمة تتسجل هنا. */
         if (acceptedItems.length) {
             const finalStatus = acceptedItems.length === items.length ? "accepted" : "partial";
+            const availableItemsPayload = acceptedItems.map((it) => ({ name: it.medicine_name, unit: it.unit || "" }));
+            const unavailableItemsPayload = unavailableNow.map((it) => ({ name: it.medicine_name, unit: it.unit || "" }));
             await db.run(
                 `UPDATE orders SET status = $1, "pharmacyId" = $2, "pharmacyName" = $3, price = $4, notes = $5,
+                    "availableItems" = $6, "unavailableItems" = $7,
                     "workflowStatus" = 'awaiting_receipt', "executionPending" = 1, "executionCompleted" = 0,
-                    "executionFailed" = 0, "executionDeadline" = $6, "updatedAt" = NOW()
-                 WHERE id = $7`,
-                [finalStatus, pharmacyId, pharmacyName, price || null, notes || null, new Date(Date.now() + 5 * 60 * 1000).toISOString(), id]
+                    "executionFailed" = 0, "executionDeadline" = $8, "updatedAt" = NOW()
+                 WHERE id = $9`,
+                [
+                    finalStatus, pharmacyId, pharmacyName, price || null, notes || null,
+                    JSON.stringify(availableItemsPayload), JSON.stringify(unavailableItemsPayload),
+                    new Date(Date.now() + 5 * 60 * 1000).toISOString(), id,
+                ]
             );
             await db.run(`INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
                 [id, `تم قبول ${acceptedItems.length} من ${items.length} أصناف — ${pharmacyName}`, "#10b981"]);
