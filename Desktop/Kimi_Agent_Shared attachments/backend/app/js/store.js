@@ -546,6 +546,46 @@ window.App = window.App || {};
       }
       return o || null;
     },
+
+    /* ============================================================
+       🆕 fetchOrderTimeline(id) — جلب الطلب الكامل (بالتايملاين
+       الحقيقي) من GET /orders/:id وتحديث النسخة المحلية بيه.
+       ------------------------------------------------------------
+       السبب: GET /orders (قائمة كل الطلبات) بترجع كل الطلبات من
+       غير عمود timeline خالص (شوف formatOrderRow في orders.js
+       بالباك إند)، فكانت صفحة تفاصيل الطلب دايمًا بتشوف التايملاين
+       الافتراضي بسطر واحد بس ("تم استلام الطلب من الشات بوت") لأن
+       getOrder() هنا بيقرأ من الكاش المحلي اللي جاي من syncOrders()
+       (اللي بينادي getOrders فقط). التايملاين الحقيقي (بكل الخطوات:
+       قبول/تجهيز/تسليم/تنفيذ جزئي...) موجود بس في استعلام GET
+       /orders/:id. الدالة دي بتنادي الإندبوينت ده وتحدّث db.orders
+       بالنتيجة الكاملة (بما فيها timeline)، وترجع true لو التايملاين
+       اتغيّر فعلاً عن اللي كان محفوظ محليًا (عشان نعرف نحدّث الـ DOM
+       من غير ما نعمل refresh كامل للصفحة كل شوية).
+       ============================================================ */
+    async fetchOrderTimeline(id) {
+      try {
+        const res = await App.api.getOrder(id);
+        if (!res || !res.ok || !res.order) return false;
+
+        const idx = db.orders.findIndex((o) => o.id === id);
+        const newTimelineJson = JSON.stringify(res.order.timeline || []);
+        const oldTimelineJson = idx >= 0 ? JSON.stringify(db.orders[idx].timeline || []) : null;
+
+        if (idx >= 0) {
+          db.orders[idx] = { ...db.orders[idx], ...res.order };
+        } else {
+          db.orders.push(res.order);
+        }
+        save();
+
+        return newTimelineJson !== oldTimelineJson;
+      } catch (e) {
+        console.error("فشل جلب تفاصيل الطلب (التايملاين):", e);
+        return false;
+      }
+    },
+
     pendingCount() { return db.orders.filter((o) => o.status === "pending").length; },
     getPharmacyCapacity(user) { return getDefaultMaxActiveOrders(user); },
     getActiveOrderCountForPharmacist(pharmacistId) { return getActiveOrderCountForPharmacist(pharmacistId); },
