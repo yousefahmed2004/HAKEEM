@@ -760,6 +760,31 @@ App.pages = App.pages || {};
       const o = S().getOrder(param);
       if (!o) return;
 
+      /* ============================================================
+         🆕 جلب التايملاين الحقيقي فور فتح صفحة التفاصيل
+         ------------------------------------------------------------
+         GET /orders (اللي بيملى الكاش المحلي عبر syncOrders) مش بيرجع
+         عمود timeline خالص، فالكارت بيظهر بالتايملاين الافتراضي بس
+         (سطر واحد "تم استلام الطلب من الشات بوت"). هنا بنستدعي
+         GET /orders/:id (اللي فيه التايملاين الكامل) ونحدّث عنصر
+         .timeline في الـ DOM لو فيه فرق فعلي — من غير ما نعمل
+         App.router.refresh() كامل عشان منقطعش على المستخدم لو كان
+         بيعمل حاجة تانية في الصفحة (زي فتح مودال).
+         ============================================================ */
+      S().fetchOrderTimeline(param).then((changed) => {
+        if (!changed) return;
+        if (location.hash !== "#/orders/" + param) return; // المستخدم غيّر الصفحة قبل ما الطلب يرجع
+        const fresh = S().getOrder(param);
+        const timelineEl = document.querySelector(".timeline");
+        if (timelineEl && fresh && fresh.timeline) {
+          timelineEl.innerHTML = fresh.timeline.map((t) => `
+            <div class="tl-item" style="--tlc:${t.color || "#0ea5e9"}">
+              <div class="tl-text">${esc(t.text)}</div>
+              <div class="tl-time">${fmtDateTime(t.at)}</div>
+            </div>`).join("");
+        }
+      });
+
       const refresh = () => App.router.refresh();
 
       /* فتح/تكبير صورة الروشتة عند الضغط عليها */
