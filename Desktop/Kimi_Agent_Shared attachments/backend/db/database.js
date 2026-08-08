@@ -131,6 +131,84 @@ async function withTransaction(work) {
 }
 
 /* ============================================================
+   🆕 fixActiveOrderPhoneIndex — إصلاح تلقائي لأي unique index/
+   constraint اسمه "one_active_order_per_phone" لو موجود على
+   عمود orders.phone من غير ما يستثني الطلبات "الأبناء" الناتجة
+   عن التنفيذ الجزئي (الطلبات اللي ليها parentOrderId).
+   ------------------------------------------------------------
+   السبب: في التنفيذ الجزئي (POST /orders/:id/partial) الطلب
+   الأصلي بيتحول لحالة "partial" (لسه معدود "نشط")، وفي نفس
+   اللحظة بننشئ طلب "ابن" جديد بحالة "pending" بنفس رقم هاتف
+   العميل عشان يحمل الأصناف الناقصة. لو الـ index الموجود على
+   قاعدة البيانات بيمنع أكتر من طلب نشط واحد لكل رقم هاتف من
+   غير أي استثناء، الـ INSERT بتاع الطلب الابن هيفشل بخطأ:
+       duplicate key value violates unique constraint
+       "one_active_order_per_phone"
+
+   الدالة دي:
+   1) تتأكد الأول لو فيه constraint/index بالاسم ده أصلاً (بعض
+      البيئات ممكن ماتكونش مضافاه، فمفيش داعي تعمل حاجة).
+   2) لو موجود، تفحص تعريفه الحالي (pg_get_constraintdef أو
+      pg_get_indexdef) وتشوف لو فعلاً بيستثني الطلبات اللي ليها
+      "parentOrderId" — لو مستثنيها خلاص متعملش حاجة (idempotent،
+      آمن تشغّلها كل مرة السيرفر بيقوم من غير أي أثر جانبي).
+   3) لو مش مستثنيها، تحذف الـ index/constraint القديم وتنشئ
+      واحد جديد بنفس الاسم، بيفرض: طلب "مستقل" واحد بس نشط لكل
+      رقم هاتف (الطلبات اللي parentOrderId عندها NULL)، بينما
+      الطلبات الأبناء (المتفرعة من تنفيذ جزئي) مسموح تتواجد مع
+      الطلب الأب من غير ما تصطدم بالقاعدة دي.
+   ============================================================ */
+async function fixActiveOrderPhoneIndex() {
+    try {
+        // هل فيه constraint بالاسم ده؟ (مضاف كـ table constraint)
+        const constraintRow = await get(
+            `SELECT pg_get_constraintdef(oid) AS def
+             FROM pg_constraint
+             WHERE conname = 'one_active_order_per_phone'`
+        );
+
+        // هل فيه index بالاسم ده؟ (مضاف مباشرة كـ CREATE UNIQUE INDEX)
+        const indexRow = await get(
+            `SELECT indexdef FROM pg_indexes WHERE indexname = 'one_active_order_per_phone'`
+        );
+
+        if (!constraintRow && !indexRow) {
+            // مفيش حاجة بالاسم ده على الإطلاق — مفيش داعي نعمل أي تعديل
+            return;
+        }
+
+        const currentDef = (constraintRow?.def || indexRow?.indexdef || "");
+        const alreadyExcludesChildren = currentDef.includes('"parentOrderId"');
+
+        if (alreadyExcludesChildren) {
+            // خلاص متعدّل قبل كده — idempotent، مفيش داعي نكرر العملية
+            return;
+        }
+
+        console.log('🔧 إصلاح "one_active_order_per_phone" ليستثني الطلبات المتفرعة من التنفيذ الجزئي...');
+
+        // احذف أي نسخة قديمة (سواء كانت constraint أو index مباشر)
+        if (constraintRow) {
+            await run(`ALTER TABLE orders DROP CONSTRAINT IF EXISTS one_active_order_per_phone`);
+        }
+        await run(`DROP INDEX IF EXISTS one_active_order_per_phone`);
+
+        // أنشئ index جزئي جديد: طلب "مستقل" واحد بس نشط لكل رقم هاتف
+        // (الطلبات اللي ليها parentOrderId مستثناة تمامًا من القاعدة دي)
+        await run(`
+            CREATE UNIQUE INDEX one_active_order_per_phone
+            ON orders (phone)
+            WHERE status NOT IN ('delivered', 'closed', 'rejected')
+              AND "parentOrderId" IS NULL
+        `);
+
+        console.log('✅ تم إصلاح "one_active_order_per_phone" بنجاح');
+    } catch (err) {
+        console.error('❌ خطأ في إصلاح "one_active_order_per_phone":', err.message);
+    }
+}
+
+/* ============================================================
    Create tables (PostgreSQL syntax) - Ordered correctly
    ============================================================ */
 const initializeDatabase = async () => {
@@ -302,6 +380,11 @@ const initializeDatabase = async () => {
                 created_at TIMESTAMP DEFAULT NOW()
             )
         `);
+
+        // 8. --- 🆕 إصلاح تلقائي لـ unique index "one_active_order_per_phone"
+        //       (لو موجود على البيئة) عشان يستثني الطلبات المتفرعة من
+        //       التنفيذ الجزئي — راجع تعليق الدالة فوق لتفاصيل السبب.
+        await fixActiveOrderPhoneIndex();
 
         console.log("✅ تم إنشاء/التحقق من جميع الجداول بنجاح");
         await seedDatabase();
