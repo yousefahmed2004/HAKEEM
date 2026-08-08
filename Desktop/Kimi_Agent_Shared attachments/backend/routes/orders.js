@@ -18,6 +18,24 @@ function normalizeStatus(status) {
 }
 
 /* ============================================================
+    🆕 (تنفيذ جزئي) عدد الصيدليات المختلفة اللي لو اعتذرت عن نفس
+    الصنف ضمن نفس سلسلة الطلب، بيُعتبر الصنف "ناقص السوق" ويترسل
+    تنبيه للعميل. قابل للتعديل عبر متغير بيئة SHORTAGE_THRESHOLD.
+    ============================================================ */
+const SHORTAGE_THRESHOLD = Number(process.env.SHORTAGE_THRESHOLD || 5);
+
+/* رابط Webhook الخاص بـ n8n لإرسال رسالة "الدواء ده ناقص السوق" للعميل
+    (Webhook4 → "shortage message to customer" في ملف الـ workflow) */
+const N8N_SHORTAGE_WEBHOOK_URL =
+    process.env.N8N_SHORTAGE_WEBHOOK_URL ||
+    "https://hakeem-n8n.62wz9l.easypanel.host/webhook/SHORTAGE";
+
+/* رابط Webhook الشحن الحالي (بدون تغيير) */
+const N8N_SHIPPING_WEBHOOK_URL =
+    process.env.N8N_WEBHOOK_URL ||
+    "https://hakeem-n8n.62wz9l.easypanel.host/webhook/SHIBBING";
+
+/* ============================================================
     🆕 فصل اسم الدواء عن نوع العبوة (علبة / شريط / أمبولة ... إلخ)
     ------------------------------------------------------------
     كان بيوصل من الشات بوت سترينج واحد ملزّق زي "Fucidin - علبة"،
@@ -162,6 +180,47 @@ function extractPrescriptionImage(order) {
 }
 
 /* ============================================================
+    🔁 دالة عامة لإرسال Webhook إلى n8n (تُستخدم لتحديث الشحن
+    ولتنبيه نفاد الدواء من السوق) — لا تفشل الطلب الأساسي أبدًا،
+    بترجع { ok, status, body } أو { ok:false, error } فقط.
+    ============================================================ */
+function sendN8nWebhook(url, payload) {
+    return new Promise((resolve) => {
+        try {
+            const parsedUrl = new URL(url);
+            const postData = JSON.stringify(payload);
+            const options = {
+                hostname: parsedUrl.hostname,
+                port: parsedUrl.port || 443,
+                path: parsedUrl.pathname + parsedUrl.search,
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Content-Length": Buffer.byteLength(postData),
+                },
+            };
+
+            const reqHttps = https.request(options, (response) => {
+                let data = "";
+                response.on("data", (chunk) => { data += chunk; });
+                response.on("end", () => {
+                    resolve({ ok: response.statusCode >= 200 && response.statusCode < 300, status: response.statusCode, body: data });
+                });
+            });
+
+            reqHttps.on("error", (err) => {
+                resolve({ ok: false, error: err.message });
+            });
+
+            reqHttps.write(postData);
+            reqHttps.end();
+        } catch (err) {
+            resolve({ ok: false, error: err.message });
+        }
+    });
+}
+
+/* ============================================================
     ⏱️ تنظيف الطلبات اللي انتهت مهلة تنفيذها (Server-side Execution Timeout)
     ------------------------------------------------------------
     بتترجع أي طلب "executionPending = 1" وتخطى "executionDeadline"
@@ -255,6 +314,40 @@ async function expireStalePendingOrders() {
     }
 }
 
+/* دالة مساعدة موحّدة لتنسيق صف طلب خام (من الاستعلام) إلى الشكل
+    اللي بيستهلكه الفرونت إند — بتتكرر في GET /orders و GET /orders/:id
+    فبقت هنا دالة واحدة بدل التكرار */
+function formatOrderRow(order) {
+    const extractedImage = extractPrescriptionImage(order);
+    return {
+        id: String(order.id),
+        customerName: order.customerName || order.customer_name,
+        phone: order.phone || "",
+        address: order.address || "",
+        items: resolveItems(order),
+        prescriptionImage: extractedImage,
+        status: normalizeStatus(order.status),
+        createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
+        pharmacyId: order.pharmacyId || order.pharmacy_id || null,
+        pharmacyName: order.pharmacyName || order.pharmacy_name || null,
+        price: order.price || null,
+        availableItems: order.availableItems ? (typeof order.availableItems === 'string' ? JSON.parse(order.availableItems || "[]") : order.availableItems) : [],
+        unavailableItems: order.unavailableItems ? (typeof order.unavailableItems === 'string' ? JSON.parse(order.unavailableItems || "[]") : order.unavailableItems) : [],
+        notes: order.notes || "",
+        rejectedBy: order.rejectedBy ? (typeof order.rejectedBy === 'string' ? JSON.parse(order.rejectedBy || "[]") : order.rejectedBy) : [],
+        workflowStatus: order.workflowStatus || null,
+        executionPending: !!order.executionPending,
+        executionDeadline: order.executionDeadline || null,
+        executionCompleted: !!order.executionCompleted,
+        executionFailed: !!order.executionFailed,
+        executedAt: order.executedAt || null,
+        deliveredAt: order.deliveredAt || null,
+        /* 🆕 روابط سلسلة التنفيذ الجزئي (order splitting) */
+        rootOrderId: order.rootOrderId || null,
+        parentOrderId: order.parentOrderId || null,
+    };
+}
+
 /* ============================================================
     جلب جميع الطلبات
     ============================================================ */
@@ -288,35 +381,7 @@ router.get("/orders", async (req, res) => {
 
         const rows = status ? await db.all(query, [status]) : await db.all(query);
 
-        // تحويل البيانات إلى الشكل المطلوب مع استخدام دالة استخراج الصورة الذكية
-        const formattedOrders = rows.map((order) => {
-            const extractedImage = extractPrescriptionImage(order);
-
-            return {
-                id: String(order.id),
-                customerName: order.customerName || order.customer_name,
-                phone: order.phone || "",
-                address: order.address || "",
-                items: resolveItems(order),
-                prescriptionImage: extractedImage,
-                status: normalizeStatus(order.status),
-                createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
-                pharmacyId: order.pharmacyId || order.pharmacy_id || null,
-                pharmacyName: order.pharmacyName || order.pharmacy_name || null,
-                price: order.price || null,
-                availableItems: order.availableItems ? (typeof order.availableItems === 'string' ? JSON.parse(order.availableItems || "[]") : order.availableItems) : [],
-                unavailableItems: order.unavailableItems ? (typeof order.unavailableItems === 'string' ? JSON.parse(order.unavailableItems || "[]") : order.unavailableItems) : [],
-                notes: order.notes || "",
-                rejectedBy: order.rejectedBy ? (typeof order.rejectedBy === 'string' ? JSON.parse(order.rejectedBy || "[]") : order.rejectedBy) : [],
-                workflowStatus: order.workflowStatus || null,
-                executionPending: !!order.executionPending,
-                executionDeadline: order.executionDeadline || null,
-                executionCompleted: !!order.executionCompleted,
-                executionFailed: !!order.executionFailed,
-                executedAt: order.executedAt || null,
-                deliveredAt: order.deliveredAt || null,
-            };
-        });
+        const formattedOrders = rows.map(formatOrderRow);
 
         res.json({ ok: true, orders: formattedOrders });
     } catch (err) {
@@ -363,31 +428,8 @@ router.get("/orders/:id", async (req, res) => {
             [id]
         );
 
-        const extractedImage = extractPrescriptionImage(order);
-
         const formattedOrder = {
-            id: String(order.id),
-            customerName: order.customerName || order.customer_name,
-            phone: order.phone || "",
-            address: order.address || "",
-            items: resolveItems(order),
-            prescriptionImage: extractedImage,
-            status: normalizeStatus(order.status),
-            createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
-            pharmacyId: order.pharmacyId || order.pharmacy_id || null,
-            pharmacyName: order.pharmacyName || order.pharmacy_name || null,
-            price: order.price || null,
-            availableItems: order.availableItems ? (typeof order.availableItems === 'string' ? JSON.parse(order.availableItems || "[]") : order.availableItems) : [],
-            unavailableItems: order.unavailableItems ? (typeof order.unavailableItems === 'string' ? JSON.parse(order.unavailableItems || "[]") : order.unavailableItems) : [],
-            notes: order.notes || "",
-            rejectedBy: order.rejectedBy ? (typeof order.rejectedBy === 'string' ? JSON.parse(order.rejectedBy || "[]") : order.rejectedBy) : [],
-            workflowStatus: order.workflowStatus || null,
-            executionPending: !!order.executionPending,
-            executionDeadline: order.executionDeadline || null,
-            executionCompleted: !!order.executionCompleted,
-            executionFailed: !!order.executionFailed,
-            executedAt: order.executedAt || null,
-            deliveredAt: order.deliveredAt || null,
+            ...formatOrderRow(order),
             timeline: timelineRows.length ? timelineRows.map((t) => ({
                 at: new Date(t.at).toISOString(),
                 text: t.text,
@@ -469,6 +511,10 @@ router.post("/orders", async (req, res) => {
     الخاصة بجلسة العميل ده، عشان محادثة الأوردر القديم متأثرش على
     أي أوردر جديد هيبدأه بعد كده (نفس فكرة نود "close session" اللي
     كانت في n8n، بس هنا بقى مركزي في الباك إند + بيمسح الميموري كمان).
+
+    ملحوظة: التنفيذ الجزئي (Partial) بقى ليه مسار مستقل تمامًا:
+    POST /orders/:id/partial تحت — عشان يتعامل مع تقسيم الطلب
+    (Order Splitting) واحتساب نقص الأدوية بشكل آمن ومركزي.
     ============================================================ */
 router.put("/orders/:id", async (req, res) => {
     try {
@@ -550,6 +596,197 @@ router.put("/orders/:id", async (req, res) => {
     } catch (err) {
         console.error("❌ خطأ في تحديث الطلب:", err.message);
         res.status(500).json({ ok: false, error: "فشل في تحديث الطلب" });
+    }
+});
+
+/* ============================================================
+    🆕 التنفيذ الجزئي (Partial Fulfillment + Order Splitting)
+    ------------------------------------------------------------
+    الصيدلي بيبعت قائمتين: availableItems (متوفرة عنده — بينفذها
+    ويقبضها بسعر price)، و unavailableItems (مش متوفرة عنده).
+
+    اللي بيحصل هنا بالترتيب:
+    1) الطلب الحالي يتحدث لحالة "partial" بالأصناف المتوفرة بس،
+       ويتقفل تنفيذه (نفس منطق قبول عادي لكن جزئي).
+    2) لكل صنف مش متوفر: يتسجل في medicine_shortage_reports أنه
+       اتعلّم عليه "X" من الصيدلية دي، ثم نحسب عدد الصيدليات
+       المختلفة اللي اعتذرت عن نفس الصنف ضمن نفس سلسلة الطلب
+       (rootOrderId) من الأول. لو وصل العدد لحد SHORTAGE_THRESHOLD
+       (5 افتراضيًا) ولسه ماتبعتش تنبيه قبل كده، نبعت رسالة واتساب
+       للعميل تقوله إن الصنف ده ناقص من السوق، ونستبعده من أي
+       طلب جديد بعد كده.
+    3) الأصناف الباقية (اللي لسه معملهاش تنبيه نفاد) بيتكوّن منها
+       طلب جديد "pending" لنفس العميل، مرتبط بالطلب الأصلي عبر
+       parentOrderId/rootOrderId، وبيظهر فورًا في لوحة كل الصيادلة
+       ما عدا الصيدلية اللي عملت التنفيذ الجزئي (متضافش هي تانى
+       لنفس الأصناف اللي قالت هي نفسها إنها مش متوفرة عندها).
+    ============================================================ */
+router.post("/orders/:id/partial", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { pharmacyId, pharmacyName, availableItems, unavailableItems, price, notes } = req.body;
+
+        if (!pharmacyId || !pharmacyName) {
+            return res.status(400).json({ ok: false, error: "بيانات الصيدلية مطلوبة" });
+        }
+        if (!Array.isArray(availableItems) || !Array.isArray(unavailableItems)) {
+            return res.status(400).json({ ok: false, error: "قائمة الأصناف غير صحيحة" });
+        }
+        if (!availableItems.length) {
+            return res.status(400).json({ ok: false, error: "حدد صنفًا واحدًا على الأقل كمتوفر" });
+        }
+        if (!unavailableItems.length) {
+            return res.status(400).json({ ok: false, error: "لو كل الأصناف متوفرة استخدم قبول الطلب بالكامل بدلاً من التنفيذ الجزئي" });
+        }
+        if (!Number.isFinite(Number(price)) || Number(price) <= 0) {
+            return res.status(400).json({ ok: false, error: "أدخل سعرًا صحيحًا أكبر من صفر" });
+        }
+
+        const order = await db.get(`SELECT * FROM orders WHERE id = $1`, [id]);
+        if (!order) return res.status(404).json({ ok: false, error: "الطلب غير موجود" });
+        if (normalizeStatus(order.status) !== "pending") {
+            return res.status(409).json({ ok: false, error: "لم يعد هذا الطلب متاحًا للتنفيذ الجزئي" });
+        }
+
+        const existingRejectedBy = order.rejectedBy
+            ? (typeof order.rejectedBy === "string" ? JSON.parse(order.rejectedBy) : order.rejectedBy)
+            : [];
+        if (existingRejectedBy.includes(pharmacyId)) {
+            return res.status(409).json({ ok: false, error: "سبق أن اعتذرت عن هذا الطلب" });
+        }
+
+        // جذر سلسلة الطلب: لو الطلب ده أصلاً طرف في سلسلة (متفرّع من طلب أقدم) بنستخدم نفس
+        // rootOrderId بتاعه، وإلا هو نفسه الجذر (أول طلب في السلسلة)
+        const rootOrderId = order.rootOrderId || order.id;
+
+        // 1) تحديث الطلب الحالي — تنفيذ جزئي بالأصناف المتوفرة فقط
+        await db.run(
+            `UPDATE orders
+             SET status = 'partial', "pharmacyId" = $1, "pharmacyName" = $2,
+                 "availableItems" = $3, "unavailableItems" = $4, price = $5, notes = $6,
+                 "workflowStatus" = 'received', "executionPending" = 0, "executionDeadline" = NULL,
+                 "executionCompleted" = 1, "executionFailed" = 0, "executedAt" = NOW(),
+                 "rootOrderId" = $7, "updatedAt" = NOW()
+             WHERE id = $8`,
+            [
+                pharmacyId, pharmacyName,
+                JSON.stringify(availableItems), JSON.stringify(unavailableItems),
+                Number(price), notes || null,
+                rootOrderId, id,
+            ]
+        );
+
+        await db.run(
+            `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+            [id, `تنفيذ جزئي (${availableItems.length} من ${availableItems.length + unavailableItems.length} أدوية) — ${pharmacyName}`, "#0ea5e9"]
+        );
+
+        // 2) تسجيل كل صنف ناقص + احتساب عدد الصيدليات المختلفة اللي اعتذرت عنه في نفس السلسلة
+        const shortageNow = [];          // أصناف بلغت حد التنبيه الآن لأول مرة (هيتبعت لهم رسالة)
+        const remainingForNewOrder = []; // أصناف هتتكرر في الطلب الجديد
+
+        for (const rawItem of unavailableItems) {
+            const { name, unit } = splitMedicineItem(rawItem);
+            if (!name) continue;
+
+            await db.run(
+                `INSERT INTO medicine_shortage_reports ("rootOrderId", medicine_name, "pharmacyId")
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT ("rootOrderId", medicine_name, "pharmacyId") DO NOTHING`,
+                [rootOrderId, name, pharmacyId]
+            );
+
+            const countRow = await db.get(
+                `SELECT COUNT(DISTINCT "pharmacyId")::int as cnt FROM medicine_shortage_reports WHERE "rootOrderId" = $1 AND medicine_name = $2`,
+                [rootOrderId, name]
+            );
+            const distinctCount = countRow ? countRow.cnt : 0;
+
+            const alreadyAlerted = await db.get(
+                `SELECT id FROM medicine_shortage_alerts WHERE "rootOrderId" = $1 AND medicine_name = $2`,
+                [rootOrderId, name]
+            );
+
+            if (distinctCount >= SHORTAGE_THRESHOLD && !alreadyAlerted) {
+                await db.run(
+                    `INSERT INTO medicine_shortage_alerts ("rootOrderId", medicine_name) VALUES ($1, $2)
+                     ON CONFLICT ("rootOrderId", medicine_name) DO NOTHING`,
+                    [rootOrderId, name]
+                );
+                shortageNow.push({ name, unit });
+            } else if (distinctCount >= SHORTAGE_THRESHOLD && alreadyAlerted) {
+                // سبق التنبيه على الصنف ده قبل كده — يفضل مستبعد من أي طلب جديد
+            } else {
+                remainingForNewOrder.push({ name, unit });
+            }
+        }
+
+        // 3) إبلاغ العميل بأي صنف بلغ حد النفاد للتو (مرة واحدة فقط لكل صنف/سلسلة)
+        for (const shortItem of shortageNow) {
+            await db.run(
+                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [id, `تم إبلاغ العميل بنفاد "${shortItem.name}" من السوق (اعتذرت عنه ${SHORTAGE_THRESHOLD} صيدليات مختلفة)`, "#dc2626"]
+            );
+
+            sendN8nWebhook(N8N_SHORTAGE_WEBHOOK_URL, {
+                type: "medicine_out_of_stock",
+                order_id: id,
+                root_order_id: rootOrderId,
+                phone: order.phone,
+                customer_name: order.customerName,
+                medicine_name: shortItem.name,
+            }).then((r) => {
+                if (!r.ok) console.error(`[Shortage Webhook ✗] فشل إبلاغ العميل بنفاد "${shortItem.name}":`, r.error || r.body);
+                else console.log(`[Shortage Webhook ✓] تم إبلاغ العميل بنفاد "${shortItem.name}"`);
+            });
+        }
+
+        // 4) إنشاء طلب جديد بالأصناف الناقصة المتبقية (لو فيه) — يظهر فورًا لكل الصيدليات
+        //    ما عدا الصيدلية الحالية (اللي أصلاً قالت إن الأصناف دي مش متوفرة عندها)
+        let childOrderId = null;
+        if (remainingForNewOrder.length) {
+            const childResult = await db.run(
+                `INSERT INTO orders ("customerName", phone, address, items, "prescriptionImage", status, "rootOrderId", "parentOrderId", "rejectedBy", "createdAt")
+                 VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8::jsonb, NOW())
+                 RETURNING id`,
+                [
+                    order.customerName, order.phone, order.address,
+                    JSON.stringify(remainingForNewOrder),
+                    order.prescriptionImage || null,
+                    rootOrderId, id,
+                    JSON.stringify([pharmacyId]),
+                ]
+            );
+            childOrderId = childResult.id;
+
+            for (const item of remainingForNewOrder) {
+                await db.run(
+                    `INSERT INTO order_items (order_id, medicine_name, unit, status) VALUES ($1, $2, $3, 'pending')`,
+                    [childOrderId, item.name, item.unit || null]
+                );
+            }
+
+            await db.run(
+                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [childOrderId, `طلب مكمل للطلب #${id} — أصناف ناقصة (${remainingForNewOrder.length}) أُعيد طرحها على باقي الصيادلة`, "#f59e0b"]
+            );
+        } else if (shortageNow.length || unavailableItems.length) {
+            // كل الأصناف الناقصة إما اتبلّغ عنها نفاد من السوق أو خلاص اتبلّغ عنها قبل كده
+            await db.run(
+                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [id, `كل الأصناف الناقصة أصبحت مُبلّغ عنها كنفاد من السوق — لا يوجد طلب جديد`, "#dc2626"]
+            );
+        }
+
+        res.json({
+            ok: true,
+            orderId: String(id),
+            childOrderId: childOrderId ? String(childOrderId) : null,
+            shortageAlerts: shortageNow.map((s) => s.name),
+        });
+    } catch (err) {
+        console.error("❌ خطأ في التنفيذ الجزئي:", err.message);
+        res.status(500).json({ ok: false, error: "فشل في تنفيذ الطلب جزئيًا" });
     }
 });
 
@@ -645,6 +882,35 @@ router.get("/medicines-stats", async (req, res) => {
 });
 
 /* ============================================================
+    🆕 الأصناف الناقصة من السوق حسب سلسلة طلب معينة (للتشخيص/العرض)
+    ============================================================ */
+router.get("/orders/:id/shortages", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const order = await db.get(`SELECT id, "rootOrderId" FROM orders WHERE id = $1`, [id]);
+        if (!order) return res.status(404).json({ ok: false, error: "الطلب غير موجود" });
+
+        const rootOrderId = order.rootOrderId || order.id;
+        const rows = await db.all(
+            `SELECT medicine_name, COUNT(DISTINCT "pharmacyId")::int as pharmacies_count
+             FROM medicine_shortage_reports
+             WHERE "rootOrderId" = $1
+             GROUP BY medicine_name
+             ORDER BY pharmacies_count DESC`,
+            [rootOrderId]
+        );
+        const alerts = await db.all(
+            `SELECT medicine_name FROM medicine_shortage_alerts WHERE "rootOrderId" = $1`,
+            [rootOrderId]
+        );
+        res.json({ ok: true, rootOrderId, threshold: SHORTAGE_THRESHOLD, reports: rows, notified: alerts.map((a) => a.medicine_name) });
+    } catch (err) {
+        console.error("❌ خطأ في جلب تقارير النقص:", err.message);
+        res.status(500).json({ ok: false, error: "فشل في جلب تقارير النقص" });
+    }
+});
+
+/* ============================================================
     🔁 بروكسي: إرسال تحديث الشحن إلى n8n Webhook
     يستقبل order_id (إجباري) و price (اختياري — السعر الإجمالي
     الذي يدخله الصيدلي عند تنفيذ الطلب) ويمرّرهما معًا إلى n8n
@@ -656,54 +922,18 @@ router.post("/webhook/shipping", async (req, res) => {
         return res.status(400).json({ ok: false, error: "order_id مطلوب" });
     }
 
-    const n8nUrl = process.env.N8N_WEBHOOK_URL || "https://hakeem-n8n.62wz9l.easypanel.host/webhook/SHIBBING";
-
     const normalizedPrice = price !== undefined && price !== null && Number.isFinite(Number(price)) ? Number(price) : null;
 
     console.log(`[Proxy] إرسال تحديث الشحن للطلب #${order_id} (السعر: ${normalizedPrice ?? "غير محدد"}) إلى n8n...`);
 
-    try {
-        const parsedUrl = new URL(n8nUrl);
-        const postData = JSON.stringify({ order_id, price: normalizedPrice });
+    const result = await sendN8nWebhook(N8N_SHIPPING_WEBHOOK_URL, { order_id, price: normalizedPrice });
 
-        const options = {
-            hostname: parsedUrl.hostname,
-            port: parsedUrl.port || 443,
-            path: parsedUrl.pathname + parsedUrl.search,
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Content-Length": Buffer.byteLength(postData),
-            },
-        };
-
-        const result = await new Promise((resolve, reject) => {
-            const reqHttps = https.request(options, (response) => {
-                let data = "";
-                response.on("data", (chunk) => { data += chunk; });
-                response.on("end", () => {
-                    resolve({ status: response.statusCode, body: data });
-                });
-            });
-
-            reqHttps.on("error", (err) => {
-                reject(err);
-            });
-
-            reqHttps.write(postData);
-            reqHttps.end();
-        });
-
-        if (result.status >= 200 && result.status < 300) {
-            console.log(`[Proxy ✓] تم إرسال التحديث بنجاح للطلب #${order_id}`);
-            res.json({ ok: true, message: "تم إرسال التحديث إلى n8n" });
-        } else {
-            console.error(`[Proxy ✗] n8n رد بـ HTTP ${result.status}: ${result.body}`);
-            res.status(result.status).json({ ok: false, error: `n8n رد بـ HTTP ${result.status}` });
-        }
-    } catch (err) {
-        console.error("[Proxy ✗] خطأ في الاتصال بـ n8n:", err.message);
-        res.status(500).json({ ok: false, error: `خطأ في الاتصال بـ n8n: ${err.message}` });
+    if (result.ok) {
+        console.log(`[Proxy ✓] تم إرسال التحديث بنجاح للطلب #${order_id}`);
+        res.json({ ok: true, message: "تم إرسال التحديث إلى n8n" });
+    } else {
+        console.error(`[Proxy ✗] فشل إرسال التحديث للطلب #${order_id}:`, result.error || result.body);
+        res.status(result.status || 500).json({ ok: false, error: result.error || `n8n رد بـ HTTP ${result.status}` });
     }
 });
 
