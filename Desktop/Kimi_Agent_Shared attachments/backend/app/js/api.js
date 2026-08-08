@@ -139,6 +139,15 @@ window.App = window.App || {};
             });
         },
 
+        /* 🆕 تحديد كل صنف على حدة (متوفر ✓ / غير متوفر ✗) لطلب معين —
+           تُستخدم في نافذة "تحديد الأصناف المتوفرة" الجديدة */
+        async updateOrderChecklist(id, payload) {
+            return apiRequest(`/orders/${id}/checklist`, {
+                method: "PATCH",
+                body: JSON.stringify(payload)
+            });
+        },
+
         async rejectOrder(id, pharmacyId) {
             return apiRequest(
                 `/orders/${id}/reject/${pharmacyId}`,
