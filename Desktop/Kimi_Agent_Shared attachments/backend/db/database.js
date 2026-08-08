@@ -155,6 +155,41 @@ const initializeDatabase = async () => {
         //       تجمع كل الأصناف تحت اسم الدواء الحقيقي بدون ما يتلخبط بالعبوة.
         await run(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT NULL`);
 
+        // 2.7. --- 🆕 (إصلاح) أعمدة rootOrderId / parentOrderId على جدول orders
+        //       دول مطلوبين لمنطق "التنفيذ الجزئي" (Order Splitting) في
+        //       routes/orders.js (POST /orders/:id/partial) واللي من غيرهم
+        //       كل عملية تنفيذ جزئي كانت بتفشل بـ "column does not exist"
+        //       ويرجع الطلب زي ما هو من غير أي تقسيم.
+        await run(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "rootOrderId" VARCHAR(100) DEFAULT NULL`);
+        await run(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "parentOrderId" VARCHAR(100) DEFAULT NULL`);
+
+        // 2.8. --- 🆕 جدول تسجيل اعتذار كل صيدلية عن كل صنف ناقص ضمن سلسلة الطلب
+        //       (rootOrderId) — بيُستخدم في حساب عدد الصيدليات المختلفة اللي
+        //       اعتذرت عن نفس الصنف عشان نقرر لو وصلنا لحد "نفاد من السوق"
+        await run(`
+            CREATE TABLE IF NOT EXISTS medicine_shortage_reports (
+                id SERIAL PRIMARY KEY,
+                "rootOrderId" VARCHAR(100) NOT NULL,
+                medicine_name VARCHAR(255) NOT NULL,
+                "pharmacyId" VARCHAR(100) NOT NULL,
+                "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_shortage_report UNIQUE ("rootOrderId", medicine_name, "pharmacyId")
+            )
+        `);
+
+        // 2.9. --- 🆕 جدول تسجيل إرسال تنبيه "نفاد من السوق" للعميل
+        //       (مرة واحدة بس لكل صنف/سلسلة طلب، عشان مانبعتش نفس الرسالة
+        //       أكتر من مرة للعميل عن نفس الدواء)
+        await run(`
+            CREATE TABLE IF NOT EXISTS medicine_shortage_alerts (
+                id SERIAL PRIMARY KEY,
+                "rootOrderId" VARCHAR(100) NOT NULL,
+                medicine_name VARCHAR(255) NOT NULL,
+                "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_shortage_alert UNIQUE ("rootOrderId", medicine_name)
+            )
+        `);
+
         // 3. --- order_timeline table ---
         await run(`
             CREATE TABLE IF NOT EXISTS order_timeline (
