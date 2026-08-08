@@ -37,10 +37,15 @@ App.pages = App.pages || {};
     const phoneRow = showPhone && o.status === "accepted"
       ? `<div>${icon("phone", 14)} <span class="mono" dir="ltr">${esc(o.phone)}</span></div>`
       : "";
+    /* 🆕 لو الطلب ده ناتج عن تقسيم طلب أقدم (تنفيذ جزئي) نعرض إشارة صغيرة
+       بتربطه بالطلب الأصلي، عشان الصيدلي يفهم إنه "بقية" طلب سابق */
+    const splitBadge = o.parentOrderId
+      ? `<span class="badge badge-info" style="margin-inline-start:6px;font-size:11px" title="أصناف ناقصة من طلب سابق">${icon("split", 11)} مكمل #${esc(o.parentOrderId)}</span>`
+      : "";
     return `
       <div class="order-card" style="--oc:${st.color}" data-order="${o.id}">
         <div class="oc-head">
-          <span class="oc-id">#${esc(o.id)}</span>
+          <span class="oc-id">#${esc(o.id)}${splitBadge}</span>
           ${statusBadge(o.status)}
         </div>
         <div class="oc-customer">
@@ -75,7 +80,10 @@ App.pages = App.pages || {};
           <tbody>
             ${orders.map((o) => `
               <tr class="row-link" data-order="${o.id}">
-                <td class="td-id cell-main" data-label="رقم الطلب" style="color:var(--sky-700)">#${esc(o.id)}</td>
+                <td class="td-id cell-main" data-label="رقم الطلب" style="color:var(--sky-700)">
+                  #${esc(o.id)}
+                  ${o.parentOrderId ? `<div class="small muted" style="font-weight:600">${icon("split", 11)} مكمل #${esc(o.parentOrderId)}</div>` : ""}
+                </td>
                 <td class="td-customer" data-label="العميل">
                   <div class="cell-main">${esc(o.customerName)}</div>
                   <div class="cell-sub">${esc(o.address)}</div>
@@ -504,6 +512,12 @@ App.pages = App.pages || {};
          <div class="small muted" style="margin-top:9px;text-align:center">اضغط على الصورة للتكبير</div>`
       : `<div class="rx-empty">${icon("image", 30, 1.5)} لم يتم إرفاق صورة روشتة صحيحة<span class="small">الطلب تم كتابة أصنافه نصياً فقط</span></div>`;
 
+    /* 🆕 لو الطلب ده "ابن" ناتج عن تقسيم طلب أقدم أثناء تنفيذ جزئي،
+       نعرض رابط واضح للطلب الأصلي فوق تفاصيل الطلب */
+    const parentLinkHTML = o.parentOrderId
+      ? `<div class="small muted" style="margin-top:4px">${icon("split", 13)} أصناف ناقصة أُعيد طرحها من الطلب <a href="#/orders/${esc(o.parentOrderId)}" style="color:var(--sky-700);font-weight:700">#${esc(o.parentOrderId)}</a></div>`
+      : "";
+
     return `
       <div class="page-anim">
         <div style="margin-bottom:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -511,6 +525,7 @@ App.pages = App.pages || {};
           <div style="flex:1">
             <div style="font-size:19px;font-weight:900">الطلب <span style="color:var(--sky-700)">#${esc(o.id)}</span></div>
             <div class="small muted">${fmtDateTime(o.createdAt)} (${timeAgo(o.createdAt)})</div>
+            ${parentLinkHTML}
           </div>
           ${statusBadge(o.status)}
         </div>
@@ -520,12 +535,12 @@ App.pages = App.pages || {};
           <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
             <div style="flex:1;min-width:220px">
               <div class="bold" style="font-size:15.5px">إجراء سريع على الطلب</div>
-              <div class="small muted">بمجرد القبول أو التنفيذ الجزئي يختفي الطلب من باقي الصيادلة، ويظهر في صفحة «طلباتي»</div>
+              <div class="small muted">بمجرد القبول، التنفيذ الجزئي، أو الاعتذار يختفي الطلب من باقي الصيادلة (أو تظهر الأصناف الناقصة فقط في طلب جديد)</div>
             </div>
             <div style="display:flex;gap:9px;flex-wrap:wrap">
               ${canConfirmReceipt ? `<button class="btn btn-success" id="act-receive">${icon("checkCircle", 17)} تأكيد الاستلام</button>` : ""}
-              ${canAct ? `<button class="btn btn-success" id="act-accept" ${capacityReached ? "disabled" : ""}>${icon("checkCircle", 17)} قبول الطلب</button>` : ""}
-              
+              ${canAct ? `<button class="btn btn-success" id="act-accept" ${capacityReached ? "disabled" : ""}>${icon("checkCircle", 17)} قبول الطلب بالكامل</button>` : ""}
+              ${canAct ? `<button class="btn btn-soft" id="act-partial" ${capacityReached ? "disabled" : ""}>${icon("split", 17)} تنفيذ جزئي (Checklist)</button>` : ""}
               ${canAct ? `<button class="btn btn-danger-soft" id="act-reject" ${capacityReached ? "disabled" : ""}>${icon("xCircle", 17)} لا أستطيع التنفيذ</button>` : ""}
             </div>
           </div>
@@ -604,21 +619,25 @@ App.pages = App.pages || {};
   }
 
   /* ============================================================
-     نافذة التنفيذ الجزئي — تحديد الأصناف المتوفرة والسعر
+     نافذة التنفيذ الجزئي (Checklist) — تحديد الأصناف المتوفرة والسعر
      ------------------------------------------------------------
-     🆕 بما إن o.items ممكن يبقوا objects {name, unit} دلوقتي، الـ
+     🆕 علامة ✓ = الصنف متوفر عند الصيدلية (بيتقبل ويتنفذ بالسعر
+     المُدخل). علامة ✗ (Checkbox فاضي) = الصنف مش متوفر، وبيتحول
+     تلقائيًا (من الباك إند) لطلب جديد لنفس العميل يظهر لباقي
+     الصيادلة، أو يتحول لتنبيه "نفاد من السوق" للعميل لو 5 صيدليات
+     مختلفة اعتذرت عن نفس الصنف عبر سلسلة الطلب دي.
+
+     بما إن o.items ممكن يبقوا objects {name, unit} دلوقتي، الـ
      checkbox value بقى index الصنف جوه o.items بدل قيمة نصية مباشرة
      (عشان attribute الـ value لازم يبقى سترينج بسيط)، وبعدين بنرجع
-     نجيب العنصر الأصلي بالـ index وقت الحفظ — ده كمان بيحافظ على
-     نفس reference جوه o.items عشان فلترة unavailableItems (فوق في
-     partialOrder داخل store.js) تفضل شغالة بنفس منطق المقارنة.
+     نجيب العنصر الأصلي بالـ index وقت الحفظ.
      ============================================================ */
   function openPartialModal(o, user) {
     modal({
-      title: `تنفيذ جزئي — الطلب #${esc(o.id)}`,
+      title: `تنفيذ جزئي (Checklist) — الطلب #${esc(o.id)}`,
       icon: "split",
       body: `
-        <p class="small muted" style="margin-bottom:12px">حدد الأدوية المتوفرة لديك من أصل ${o.items.length} صنف</p>
+        <p class="small muted" style="margin-bottom:12px">علّم بـ (✓) على الأدوية المتوفرة لديك من أصل ${o.items.length} صنف — الباقي هيتحول تلقائيًا لطلب جديد لباقي الصيادلة</p>
         <div id="pm-items" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
           ${o.items.map((m, i) => `
             <label style="display:flex;align-items:center;gap:9px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer">
@@ -626,7 +645,7 @@ App.pages = App.pages || {};
               <span>${medLabel(m)}</span>
             </label>`).join("")}
         </div>
-        <div class="field" style="margin-bottom:10px"><label>السعر الإجمالي (جنيه)</label>
+        <div class="field" style="margin-bottom:10px"><label>السعر الإجمالي للأصناف المتوفرة (جنيه)</label>
           <input class="input" id="pm-price" type="number" min="0" placeholder="مثال: 150" /></div>
         <div class="field" style="margin:0"><label>ملاحظات (اختياري)</label>
           <input class="input" id="pm-notes" placeholder="أي ملاحظات إضافية..." /></div>
@@ -636,20 +655,43 @@ App.pages = App.pages || {};
         <button class="btn btn-ghost" id="pm-cancel">إلغاء</button>`,
       onOpen(overlay, close) {
         overlay.querySelector("#pm-cancel").onclick = close;
-        overlay.querySelector("#pm-save").onclick = () => {
+        overlay.querySelector("#pm-save").onclick = async () => {
           const err = overlay.querySelector("#pm-error");
           const fail = (m) => { err.textContent = m; err.classList.add("show"); };
+          const saveBtn = overlay.querySelector("#pm-save");
+
           const checkedIdx = [...overlay.querySelectorAll(".pm-item-check:checked")].map((c) => Number(c.value));
+          const allIdx = o.items.map((_, i) => i);
+          const uncheckedIdx = allIdx.filter((i) => !checkedIdx.includes(i));
           const checked = checkedIdx.map((i) => o.items[i]);
+          const unchecked = uncheckedIdx.map((i) => o.items[i]);
           const price = Number(overlay.querySelector("#pm-price").value);
           const notes = overlay.querySelector("#pm-notes").value.trim();
-          if (!checked.length) return fail("حدد صنفًا واحدًا على الأقل كمتوفر");
-          if (checked.length === o.items.length) return fail("لو كل الأصناف متوفرة استخدم زر «قبول الطلب» بدلاً من التنفيذ الجزئي");
+
+          if (!checked.length) return fail("حدد صنفًا واحدًا على الأقل كمتوفر (✓)");
+          if (!unchecked.length) return fail("لو كل الأصناف متوفرة استخدم زر «قبول الطلب بالكامل» بدلاً من التنفيذ الجزئي");
           if (!Number.isFinite(price) || price <= 0) return fail("أدخل سعرًا صحيحًا أكبر من صفر");
-          const result = S().partialOrder(o.id, user, checked, price, notes);
-          if (!result) return fail("تعذر تنفيذ العملية، حاول مرة أخرى");
+
+          saveBtn.disabled = true;
+          const originalLabel = saveBtn.innerHTML;
+          saveBtn.innerHTML = `${icon("clock", 16)} جاري التنفيذ...`;
+
+          const result = await S().partialOrder(o.id, user, checked, unchecked, price, notes);
+
+          if (!result) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = originalLabel;
+            return fail("تعذر تنفيذ العملية، حاول مرة أخرى");
+          }
+
           close();
           toast("تم تنفيذ الطلب جزئيًا", `#${o.id}`, "success");
+          if (result.childOrderId) {
+            toast("أصناف ناقصة أُعيدت لباقي الصيادلة", `طلب جديد #${result.childOrderId}`, "info");
+          }
+          if (Array.isArray(result.shortageAlerts) && result.shortageAlerts.length) {
+            toast("تم إبلاغ العميل بنفاد دواء من السوق", result.shortageAlerts.join("، "), "warning", 7500);
+          }
           App.router.refresh();
         };
       },
@@ -736,7 +778,7 @@ App.pages = App.pages || {};
         confirmModal({
           title: "تأكيد قبول الطلب",
           icon: "checkCircle",
-          message: `هل أنت متأكد من قبول الطلب <b>#${esc(o.id)}</b>؟ سيصبح هذا الطلب مسؤوليتك ولن يظهر بعدها لباقي الصيادلة.`,
+          message: `هل أنت متأكد من قبول الطلب <b>#${esc(o.id)}</b> بالكامل؟ سيصبح هذا الطلب مسؤوليتك ولن يظهر بعدها لباقي الصيادلة.`,
           confirmText: "نعم، قبول الطلب",
           onConfirm() {
             const result = S().acceptOrder(o.id, user);
@@ -787,7 +829,8 @@ App.pages = App.pages || {};
         });
       };
 
-      /* التنفيذ الجزئي — يفتح نافذة لاختيار الأصناف المتوفرة والسعر (تعمل كتأكيد بحد ذاتها) */
+      /* 🆕 التنفيذ الجزئي (Checklist) — يفتح نافذة لاختيار الأصناف المتوفرة
+         والسعر؛ الباك إند هو اللي بيتولى تقسيم الطلب واحتساب نقص السوق */
       const partialBtn = document.getElementById("act-partial");
       if (partialBtn) partialBtn.onclick = () => openPartialModal(o, user);
 
