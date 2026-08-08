@@ -644,7 +644,14 @@ router.put("/orders/:id", async (req, res) => {
 
     اللي بيحصل هنا بالترتيب:
     1) الطلب الحالي يتحدث لحالة "partial" بالأصناف المتوفرة بس،
-       ويتقفل تنفيذه (نفس منطق قبول عادي لكن جزئي).
+       ويبدأ من خطوة "تم استلام الطلب" (workflowStatus = 'received')
+       بالظبط زي أي طلب اتقبل بالكامل بعد تأكيد الاستلام — وبعد كده
+       لازم يمشي في *نفس* خطوات الطلب العادي (تجهيز → جاهز → خرج
+       للتوصيل → تسليم) من واجهة الصيدلي، مش يقف عند الخطوة دي.
+       🆕 عشان كده executionCompleted بيتسجل هنا "0" (لسه شغال، مش
+       منتهي) بدل "1" — تمامًا زي أي طلب accepted لسه ماخلصش، عشان
+       كارت "ملخص الطلب" في الفرونت إند ميظهرش "تم تنفيذ الطلب
+       بنجاح" من أول لحظة وهو لسه في نص خطوات التجهيز والتوصيل.
     2) لكل صنف مش متوفر: يتسجل في medicine_shortage_reports أنه
        اتعلّم عليه "X" من الصيدلية دي، ثم نحسب عدد الصيدليات
        المختلفة اللي اعتذرت عن نفس الصنف ضمن نفس سلسلة الطلب
@@ -739,13 +746,17 @@ router.post("/orders/:id/partial", async (req, res) => {
                توقف الـ transaction كلها. */
             const executedAtValue = new Date().toISOString();
 
-            // 1) تحديث الطلب الحالي — تنفيذ جزئي بالأصناف المتوفرة فقط
+            /* 1) تحديث الطلب الحالي — تنفيذ جزئي بالأصناف المتوفرة فقط.
+               🆕 الطلب بيبدأ من "received" (تم استلام الطلب) بالظبط زي
+               الطلب العادي بعد تأكيد الاستلام، و"executionCompleted" = 0
+               عشان يفضل يتصرف كطلب "شغال" لسه في خطواته (تجهيز/جاهز/
+               خرج للتوصيل/تسليم) مش طلب "خلص" من أول لحظة. */
             await tx.run(
                 `UPDATE orders
                  SET status = 'partial', "pharmacyId" = $1, "pharmacyName" = $2,
                      "availableItems" = $3, "unavailableItems" = $4, price = $5, notes = $6,
                      "workflowStatus" = 'received', "executionPending" = 0, "executionDeadline" = NULL,
-                     "executionCompleted" = 1, "executionFailed" = 0, "executedAt" = $7,
+                     "executionCompleted" = 0, "executionFailed" = 0, "executedAt" = $7,
                      "rootOrderId" = $8, "updatedAt" = NOW()
                  WHERE id = $9`,
                 [
