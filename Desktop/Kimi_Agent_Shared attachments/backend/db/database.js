@@ -155,6 +155,18 @@ const initializeDatabase = async () => {
         //       تجمع كل الأصناف تحت اسم الدواء الحقيقي بدون ما يتلخبط بالعبوة.
         await run(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT NULL`);
 
+        // 2.7. --- (🆕 خاصية تحديد الأصناف صنف بصنف) عمود "rejected_by" يجمّع
+        //       IDs الصيادلة اللي رفضوا هذا الصنف بالتحديد، ويتراكم عبر كل
+        //       مرة يتكرر فيها انقسام الطلب (نفس الصف بينتقل لطلب جديد،
+        //       فالقيمة دي بتفضل معاه). لما يوصل عدد الرافضين لعتبة معينة
+        //       (افتراضيًا 5، أو عدد كل الصيادلة النشطين لو أقل) يتحول الصنف
+        //       لحالة "unavailable" نهائيًا ويتوقف عن الظهور من جديد.
+        await run(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS "rejected_by" JSONB DEFAULT '[]'::jsonb`);
+
+        // 2.8. --- (🆕) تتبع الطلب الأصلي اللي انقسم منه هذا الطلب — مفيد
+        //       للتتبع والتقارير (مش شرط تشغيلي، بس بيوضح تسلسل الانقسامات)
+        await run(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "splitFromOrderId" VARCHAR(100) DEFAULT NULL`);
+
         // 3. --- order_timeline table ---
         await run(`
             CREATE TABLE IF NOT EXISTS order_timeline (
