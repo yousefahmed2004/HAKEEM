@@ -76,7 +76,7 @@ window.App = window.App || {};
       { id: "u-ph2", username: "shefaa", password: "123456", role: "pharmacist", name: "د. سارة الشافعي", pharmacyName: "صيدلية الشفاء", phone: "01155512302", status: "active", color: "#10b981", createdAt: daysAgoISO(74, rnd), executionPoints: 100, executionStats: { accepted: 0, executed: 0, failed: 0 }, maxActiveOrders: 3 },
       { id: "u-ph3", username: "seif", password: "123456", role: "pharmacist", name: "د. خالد سيف", pharmacyName: "صيدلية سيف", phone: "01255512303", status: "active", color: "#8b5cf6", createdAt: daysAgoISO(60, rnd), executionPoints: 100, executionStats: { accepted: 0, executed: 0, failed: 0 }, maxActiveOrders: 3 },
       { id: "u-ph4", username: "elzohry", password: "123456", role: "pharmacist", name: "د. منى الزهري", pharmacyName: "صيدلية الزهري", phone: "01555512304", status: "active", color: "#f59e0b", createdAt: daysAgoISO(45, rnd), executionPoints: 100, executionStats: { accepted: 0, executed: 0, failed: 0 }, maxActiveOrders: 3 },
-      { id: "u-ph5", username: "roshdy", password: "123456", role: "pharmacist", name: "د. عمر رشدي", pharmacyName: "صيدلية رشدي", phone: "01055512305", status: "suspended", color: "#ef4444", createdAt: daysAgoISO(30, rnd), executionPoints: 100, executionStats: { accepted: 0, executed: 0, failed: 0 }, maxActiveOrders: 3 },
+      { id: "u-ph5", username: "roshdy", password: "123456", role: "pharmacist", name: "د. عمر رشدي", pharmacyName: "صيدلية رشدي", phone: "01255512305", status: "suspended", color: "#ef4444", createdAt: daysAgoISO(30, rnd), executionPoints: 100, executionStats: { accepted: 0, executed: 0, failed: 0 }, maxActiveOrders: 3 },
       { id: "u-ph6", username: "aman", password: "123456", role: "pharmacist", name: "د. هبة الأمان", pharmacyName: "صيدلية الأمان", phone: "01155512306", status: "active", color: "#06b6d4", createdAt: daysAgoISO(20, rnd), executionPoints: 100, executionStats: { accepted: 0, executed: 0, failed: 0 }, maxActiveOrders: 3 },
     ];
 
@@ -137,6 +137,8 @@ window.App = window.App || {};
           executionCompleted: false,
           executionFailed: false,
           executedAt: null,
+          rootOrderId: null,
+          parentOrderId: null,
         };
 
         if (d > 0) {
@@ -212,9 +214,10 @@ window.App = window.App || {};
   let lastOrdersJson = "";
 
   /* 🔔 تتبّع IDs الطلبات المعروفة عشان نكتشف أي طلب "جديد فعليًا" وصل من
-     الباك إند (سواء من n8n مباشرة أو من أي مصدر) ونشغّل له نفس صوت/تنبيه
-     المحاكاة. null = لسه معملناش أول تحميل، عشان محدش يتنبّه لكل الطلبات
-     الموجودة بالفعل لحظة فتح الصفحة. */
+     الباك إند (سواء من n8n مباشرة، من أي مصدر، أو طلب "ابن" ناتج من تقسيم
+     طلب أثناء التنفيذ الجزئي) ونشغّل له نفس صوت/تنبيه المحاكاة. null = لسه
+     معملناش أول تحميل، عشان محدش يتنبّه لكل الطلبات الموجودة بالفعل لحظة
+     فتح الصفحة. */
   let knownOrderIds = null;
 
   /* ملاحظة هامة:
@@ -229,7 +232,15 @@ window.App = window.App || {};
      العميل — كل ده من غير أي وسيط خارجي (n8n). الفرونت إند هنا لازم
      يتعامل مع "closed" كامتداد طبيعي لـ "accepted" في كل الأماكن اللي
      كانت بتشيك على "accepted" بس، عشان الطلب يفضل ظاهر للصيدلي وضمن
-     الإحصائيات لحد ما يتسلّم فعليًا. */
+     الإحصائيات لحد ما يتسلّم فعليًا.
+
+     ملاحظة 🆕 (التنفيذ الجزئي): كل منطق تقسيم الطلب (Order Splitting)
+     واحتساب نقص الأدوية وتنبيه العميل بقى مركزي بالكامل في الباك إند
+     (POST /orders/:id/partial) — الفرونت إند هنا بس بيبعت الأصناف
+     المتوفرة/الناقصة والسعر، وياخد النتيجة (rootOrderId, childOrderId,
+     shortageAlerts) ويعرضها، من غير أي منطق تقسيم محلي، عشان احتساب
+     عدد الصيدليات المختلفة لازم يبقى دقيق ومركزي (race-safe) بدل ما
+     يتحسب في كل متصفح لوحده. */
 
   async function syncOrders() {
     try {
@@ -243,10 +254,13 @@ window.App = window.App || {};
           if (!o.rejectedBy) o.rejectedBy = [];
           if (!o.availableItems) o.availableItems = [];
           if (!o.unavailableItems) o.unavailableItems = [];
+          if (o.rootOrderId === undefined) o.rootOrderId = null;
+          if (o.parentOrderId === undefined) o.parentOrderId = null;
         });
 
         /* ============================================================
-           🔔 اكتشاف الطلبات الجديدة اللي وصلت فعليًا (من n8n/الشات بوت)
+           🔔 اكتشاف الطلبات الجديدة اللي وصلت فعليًا (من n8n/الشات بوت
+           أو من تقسيم طلب أثناء التنفيذ الجزئي)
            ------------------------------------------------------------
            قبل كده كانت الدالة دي بتستبدل db.orders بصمت من غير ما تنبّه
            حد إن فيه طلب جديد وصل على أرض الواقع؛ الصوت والتنبيه كانا
@@ -404,6 +418,8 @@ window.App = window.App || {};
       executionCompleted: false,
       executionFailed: false,
       executedAt: null,
+      rootOrderId: null,
+      parentOrderId: null,
     };
   }
 
@@ -525,6 +541,8 @@ window.App = window.App || {};
         if (!o.rejectedBy) o.rejectedBy = [];
         if (!o.availableItems) o.availableItems = [];
         if (!o.unavailableItems) o.unavailableItems = [];
+        if (o.rootOrderId === undefined) o.rootOrderId = null;
+        if (o.parentOrderId === undefined) o.parentOrderId = null;
       }
       return o || null;
     },
@@ -588,26 +606,44 @@ window.App = window.App || {};
       return o;
     },
 
-    partialOrder(id, user, available, price, notes) {
+    /* ============================================================
+       🆕 التنفيذ الجزئي — بقى منفّذ بالكامل عبر الباك إند
+       ------------------------------------------------------------
+       المسؤولية بقت مقسومة كده:
+       - الفرونت إند (هنا): بيتحقق محليًا بسرعة إن الطلب لسه pending
+         ومحصلش اعتذار من نفس الصيدلي (تجربة استخدام أسرع بس مش
+         مصدر الحقيقة)، وبعدين بيبعت الأصناف المتوفرة/الناقصة والسعر
+         للباك إند، وياخد النتيجة كما هي.
+       - الباك إند (POST /orders/:id/partial): هو اللي بيقفل الطلب
+         الحالي، وبيسجّل نقص كل صنف، وبيحسب عدد الصيدليات المختلفة
+         اللي اعتذرت عن نفس الصنف عبر كل سلسلة الطلب (rootOrderId)،
+         وبيبعت تنبيه نفاد للعميل لو وصل العدد لـ 5 صيدليات مختلفة،
+         وبينشئ طلب جديد بالأصناف المتبقية (اللي لسه معملهاش تنبيه)
+         عشان يظهر لباقي الصيادلة.
+       بترجع { ok, orderId, childOrderId, shortageAlerts } أو null
+       لو فشلت العملية.
+       ============================================================ */
+    async partialOrder(id, user, available, unavailable, price, notes) {
       const o = this.getOrder(id);
       if (!o || o.status !== "pending" || (o.rejectedBy && o.rejectedBy.includes(user.id))) return null;
-      o.status = "partial";
-      o.pharmacyId = user.id; o.pharmacyName = user.pharmacyName;
-      o.availableItems = available;
-      o.unavailableItems = o.items.filter((m) => !available.includes(m));
-      o.price = price; o.notes = notes || "";
-      o.workflowStatus = "received";
-      o.executionPending = false;
-      o.executionDeadline = null;
-      o.executionCompleted = true;
-      o.executionFailed = false;
-      o.executedAt = new Date().toISOString();
-      const timelineText = `تنفيذ جزئي (${available.length} من ${o.items.length} أدوية) — ${user.pharmacyName}`;
-      const timelineColor = "#0ea5e9";
-      o.timeline.push({ at: new Date().toISOString(), text: timelineText, color: timelineColor });
-      save(); emit();
-      saveOrderBackend(o, timelineText, timelineColor);
-      return o;
+
+      try {
+        const result = await App.api.partialOrder(id, {
+          pharmacyId: user.id,
+          pharmacyName: user.pharmacyName,
+          availableItems: available,
+          unavailableItems: unavailable,
+          price,
+          notes,
+        });
+        if (!result || !result.ok) return null;
+
+        await syncOrders(); // يجيب الطلب المحدَّث + الطلب الجديد (لو اتعمل) من الباك إند فورًا
+        return result;
+      } catch (e) {
+        console.error("فشل تنفيذ الطلب جزئيًا:", e);
+        return null;
+      }
     },
 
     rejectOrder(id, user) {
