@@ -141,6 +141,73 @@ function resolveItems(order) {
     return [];
 }
 
+/* ============================================================
+    🆕 backfillMissingOrderItems — إصلاح ذاتي (self-healing)
+    ------------------------------------------------------------
+    السبب: بعض الطلبات (قديمة قبل إضافة order_items، أو طلبات
+    وصلت ببيانات مباشرة في orders.items من غير ما يتعمل لها insert
+    مقابل في order_items — مثلاً لو دخلت عن طريق مصدر خارجي بايباس
+    مسار POST /orders في هذا الملف) بتفضل من غير أي صفوف في
+    order_items، وبالتالي resolveItems() بترجع لها items من الشكل
+    القديم { name, unit } من غير id — وده اللي بيمنع نافذة "تحديد
+    الأصناف صنف بصنف" من الشغل معاها (تظهر رسالة "طلب قديم").
+
+    الحل: أول ما نكتشف طلب pending من غير أي صف في order_items
+    (item_statuses فاضية) لكن عنده بيانات خام في orders.items،
+    بنعمل INSERT فوري للصفوف الناقصة في order_items باستخدام نفس
+    منطق splitMedicineItem، ونرجّع الأصناف الجديدة ومعاها IDs
+    حقيقية. المرة الجاية اللي الطلب ده يتقرا فيها، json_agg هيلقط
+    الصفوف دي تلقائيًا زي أي طلب عادي — يعني الإصلاح بيحصل مرة واحدة
+    فقط لكل طلب، وبدون أي تدخل يدوي أو migration منفصل.
+    ============================================================ */
+async function backfillMissingOrderItems(orderId, rawItems) {
+    let parsed;
+    try {
+        parsed = typeof rawItems === "string" ? JSON.parse(rawItems) : rawItems;
+    } catch (e) {
+        parsed = null;
+    }
+    if (!Array.isArray(parsed) || !parsed.length) return [];
+
+    const inserted = [];
+    for (const raw of parsed) {
+        const { name, unit } = splitMedicineItem(raw);
+        if (!name) continue;
+        try {
+            const result = await db.run(
+                `INSERT INTO order_items (order_id, medicine_name, unit, status) VALUES ($1, $2, $3, 'pending') RETURNING id`,
+                [orderId, name, unit || null]
+            );
+            inserted.push({ id: result.id, name, unit: unit || "", rejectedBy: [] });
+        } catch (e) {
+            console.error(`❌ خطأ في backfill order_items للطلب #${orderId}:`, e.message);
+        }
+    }
+
+    if (inserted.length) {
+        console.log(`🩹 تم إصلاح ${inserted.length} صنف/أصناف ناقصة في order_items للطلب #${orderId}`);
+    }
+
+    return inserted;
+}
+
+/* دالة مساعدة: تقرر هل الطلب محتاج backfill ولا لأ، وتنفذه لو محتاج
+    - لازم يكون الطلب pending (الأصناف صنف بصنف مفعّلة بس للـ pending)
+    - لازم مفيش أي صف في order_items أصلاً (item_statuses فاضية)
+    - لازم يكون فيه بيانات خام (rawItems) نقدر نبني منها الصفوف */
+async function resolveItemsWithBackfill(order) {
+    let items = resolveItems(order);
+    const hasRealIds = items.length && items.every((it) => it.id != null);
+    const noExistingRows = (order.item_statuses ?? "") === "";
+
+    if (!hasRealIds && noExistingRows && normalizeStatus(order.status) === "pending" && order.rawItems) {
+        const backfilled = await backfillMissingOrderItems(order.id, order.rawItems);
+        if (backfilled.length) items = backfilled;
+    }
+
+    return items;
+}
+
 /* دالة مساعدة ذكية لاستخراج الصورة بجميع الطرق المحتملة */
 function extractPrescriptionImage(order) {
     let extractedImage = "";
@@ -374,16 +441,20 @@ router.get("/orders", async (req, res) => {
 
         const rows = status ? await db.all(query, [status]) : await db.all(query);
 
-        // تحويل البيانات إلى الشكل المطلوب مع استخدام دالة استخراج الصورة الذكية
-        const formattedOrders = rows.map((order) => {
+        /* تحويل البيانات إلى الشكل المطلوب مع استخدام دالة استخراج الصورة الذكية
+           🆕 استخدام resolveItemsWithBackfill بدل resolveItems مباشرة، عشان أي
+           طلب pending من غير صفوف order_items (طلب قديم أو داخل من مصدر خارجي)
+           يتصلح تلقائيًا ويبقى قادر على استخدام "تحديد الأصناف صنف بصنف" */
+        const formattedOrders = await Promise.all(rows.map(async (order) => {
             const extractedImage = extractPrescriptionImage(order);
+            const items = await resolveItemsWithBackfill(order);
 
             return {
                 id: String(order.id),
                 customerName: order.customerName || order.customer_name,
                 phone: order.phone || "",
                 address: order.address || "",
-                items: resolveItems(order),
+                items,
                 prescriptionImage: extractedImage,
                 status: normalizeStatus(order.status),
                 createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
@@ -403,7 +474,7 @@ router.get("/orders", async (req, res) => {
                 deliveredAt: order.deliveredAt || null,
                 splitFromOrderId: order.splitFromOrderId || null,
             };
-        });
+        }));
 
         res.json({ ok: true, orders: formattedOrders });
     } catch (err) {
@@ -451,13 +522,15 @@ router.get("/orders/:id", async (req, res) => {
         );
 
         const extractedImage = extractPrescriptionImage(order);
+        /* 🆕 نفس منطق الإصلاح الذاتي المستخدم في GET /orders (الليست) */
+        const items = await resolveItemsWithBackfill(order);
 
         const formattedOrder = {
             id: String(order.id),
             customerName: order.customerName || order.customer_name,
             phone: order.phone || "",
             address: order.address || "",
-            items: resolveItems(order),
+            items,
             prescriptionImage: extractedImage,
             status: normalizeStatus(order.status),
             createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
@@ -672,7 +745,16 @@ router.patch("/orders/:id/checklist", async (req, res) => {
             return res.status(409).json({ ok: false, error: "لم يعد هذا الطلب متاحًا للتنفيذ" });
         }
 
-        const items = await db.all("SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [id]);
+        let items = await db.all("SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [id]);
+
+        /* 🆕 نفس منطق الإصلاح الذاتي: لو الطلب pending وليس عنده أي
+           صفوف في order_items لكن عنده بيانات خام في orders.items،
+           نعمل backfill هنا كمان قبل ما نرفض الطلب بحجة "لا توجد أصناف" */
+        if (!items.length && order.items) {
+            await backfillMissingOrderItems(id, order.items);
+            items = await db.all("SELECT * FROM order_items WHERE order_id = $1 ORDER BY id", [id]);
+        }
+
         if (!items.length) return res.status(400).json({ ok: false, error: "لا توجد أصناف في هذا الطلب" });
         if (decisions.length !== items.length) {
             return res.status(400).json({ ok: false, error: "يجب تحديد حالة كل صنف قبل التأكيد" });
