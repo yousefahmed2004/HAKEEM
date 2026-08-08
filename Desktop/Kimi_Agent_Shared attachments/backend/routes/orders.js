@@ -452,6 +452,10 @@ router.get("/orders/:id", async (req, res) => {
     🆕 كل صنف بيتقسم لاسم الدواء + نوع العبوة (splitMedicineItem)
     قبل ما يتخزن في order_items، عشان التوب سيرش وإحصائيات الأدوية
     تجمع الأصناف تحت اسم الدواء الحقيقي بس.
+
+    ⚠️ (إصلاح) عمود "updatedAt" في جدول orders معرّف NOT NULL،
+    وكانت الكويري هنا مش بتبعت له قيمة خالص فبتفشل — دلوقتي بيتبعت
+    NOW() معاه بالظبط زي "createdAt".
     ============================================================ */
 router.post("/orders", async (req, res) => {
     try {
@@ -459,8 +463,8 @@ router.post("/orders", async (req, res) => {
         const prescriptionImage = req.body.prescriptionImage || req.body.prescription_image || req.body.image || req.body.prescription || "";
 
         const result = await db.run(
-            `INSERT INTO orders ("customerName", phone, address, items, "prescriptionImage", status, "createdAt")
-             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            `INSERT INTO orders ("customerName", phone, address, items, "prescriptionImage", status, "createdAt", "updatedAt")
+             VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
              RETURNING id`,
             [
                 customerName,
@@ -620,6 +624,12 @@ router.put("/orders/:id", async (req, res) => {
        parentOrderId/rootOrderId، وبيظهر فورًا في لوحة كل الصيادلة
        ما عدا الصيدلية اللي عملت التنفيذ الجزئي (متضافش هي تانى
        لنفس الأصناف اللي قالت هي نفسها إنها مش متوفرة عندها).
+
+    ⚠️ (إصلاح) عمود "updatedAt" في جدول orders معرّف NOT NULL،
+    وكويري إنشاء "الطلب الابن" هنا كانت مش بتبعت له قيمة خالص
+    فبتفشل بـ "null value in column updatedAt ... violates
+    not-null constraint" — دلوقتي بيتبعت NOW() معاه بالظبط زي
+    "createdAt".
     ============================================================ */
 router.post("/orders/:id/partial", async (req, res) => {
     try {
@@ -741,13 +751,13 @@ router.post("/orders/:id/partial", async (req, res) => {
             });
         }
 
-        // 4) إنشاء طلب جديد بالأصناف الناقصة المتبقية (لو فيه) — يظهر فورًا لكل الصيدليات
+        // 4) إنشاء طلب جديد بالأصناف الناقصة المتبقية (لو فيه) — يظهر فورًا لكل الصيادلة
         //    ما عدا الصيدلية الحالية (اللي أصلاً قالت إن الأصناف دي مش متوفرة عندها)
         let childOrderId = null;
         if (remainingForNewOrder.length) {
             const childResult = await db.run(
-                `INSERT INTO orders ("customerName", phone, address, items, "prescriptionImage", status, "rootOrderId", "parentOrderId", "rejectedBy", "createdAt")
-                 VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8::jsonb, NOW())
+                `INSERT INTO orders ("customerName", phone, address, items, "prescriptionImage", status, "rootOrderId", "parentOrderId", "rejectedBy", "createdAt", "updatedAt")
+                 VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8::jsonb, NOW(), NOW())
                  RETURNING id`,
                 [
                     order.customerName, order.phone, order.address,
