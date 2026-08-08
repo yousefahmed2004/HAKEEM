@@ -12,7 +12,7 @@ window.App = window.App || {};
      */
     async function apiRequest(endpoint, options = {}) {
         try {
-            const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+            const response = await fetch(${API_BASE_URL}${endpoint}, {
                 headers: {
                     "Content-Type": "application/json",
                     ...options.headers
@@ -25,99 +25,9 @@ window.App = window.App || {};
             }
             return data;
         } catch (error) {
-            console.error(`❌ خطأ في الطلب (${endpoint}):`, error.message);
+            console.error(❌ خطأ في الطلب (${endpoint}):, error.message);
             throw error;
         }
     }
 
-    /* ============================================================
-       App.api — الواجهة الموحّدة اللي بيستخدمها store.js
-       ============================================================ */
-    App.api = {
-
-        /* ---------- المصادقة ---------- */
-        async login(username, password) {
-            return apiRequest("/auth/login", {
-                method: "POST",
-                body: JSON.stringify({ username, password })
-            });
-        },
-
-        async addPharmacist(payload) {
-            // الباك إند بيقبلها من /auth/register أو /auth/pharmacist (نفس الدالة)
-            return apiRequest("/auth/pharmacist", {
-                method: "POST",
-                body: JSON.stringify({ ...payload, role: "pharmacist" })
-            });
-        },
-
-        async updateProfile(userId, patch) {
-            return apiRequest(`/auth/user/${userId}`, {
-                method: "PUT",
-                body: JSON.stringify(patch)
-            });
-        },
-
-        async updateUserStatus(userId, status) {
-            return apiRequest(`/auth/user/${userId}/status`, {
-                method: "PATCH",
-                body: JSON.stringify({ status })
-            });
-        },
-
-        async getPharmacists() {
-            try {
-                return await apiRequest("/auth/pharmacists");
-            } catch (error) {
-                console.error("❌ خطأ في جلب قائمة الصيادلة:", error);
-                return { ok: false, pharmacists: [] };
-            }
-        },
-
-        /* ---------- الطلبات ---------- */
-        async getOrders() {
-            try {
-                return await apiRequest("/orders");
-            } catch (error) {
-                console.error("❌ خطأ في جلب الطلبات:", error);
-                return { ok: false, orders: [] };
-            }
-        },
-
-        async getOrder(id) {
-            return apiRequest(`/orders/${id}`);
-        },
-
-        async createOrder(orderData) {
-            return apiRequest("/orders", {
-                method: "POST",
-                body: JSON.stringify(orderData)
-            });
-        },
-
-        async updateOrder(id, patch) {
-            return apiRequest(`/orders/${id}`, {
-                method: "PUT",
-                body: JSON.stringify(patch)
-            });
-        },
-
-        async rejectOrder(id, pharmacyId) {
-            return apiRequest(`/orders/${id}/reject/${pharmacyId}`, {
-                method: "PATCH"
-            });
-        },
-
-        /* 🆕 Checklist — الفعل الوحيد على الطلب المعلّق */
-        async checklistOrder(id, payload) {
-            return apiRequest(`/orders/${id}/checklist`, {
-                method: "POST",
-                body: JSON.stringify(payload)
-            });
-        },
-
-        async getOrdersStats() {
-            return apiRequest("/orders-stats");
-        },
-    };
-})();
+    /* 
