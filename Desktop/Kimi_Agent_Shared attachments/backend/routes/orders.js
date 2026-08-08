@@ -554,7 +554,8 @@ router.put("/orders/:id", async (req, res) => {
 });
 
 /* ============================================================
-    رفض الطلب (صيدلي)
+    رفض الطلب (صيدلي) — لسه موجودة لأي تكامل خارجي (زي n8n)
+    محتاج يرفض طلب مباشرة من غير المرور بالـ Checklist
     ============================================================ */
 router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
     try {
@@ -593,6 +594,135 @@ router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
     } catch (err) {
         console.error("❌ خطأ في رفض الطلب:", err.message);
         res.status(500).json({ ok: false, error: "فشل في رفض الطلب" });
+    }
+});
+
+/* ============================================================
+    🆕 Checklist — الفعل الوحيد على الطلب المعلّق
+    ------------------------------------------------------------
+    الصيدلي بيعلّم كل صنف "متوفر" أو "غير متوفر" ويبعت القرار
+    مرة واحدة. حسب النتيجة:
+      - كله غير متوفر  → اعتذار كامل (زي الرفض القديم بالظبط)
+      - كله متوفر      → قبول كامل عادي (status = accepted)
+      - جزء متوفر      → status = partial على الطلب الأصلي
+                          بالأصناف المتوفرة فقط + إنشاء طلب pending
+                          جديد تلقائيًا بالأصناف الغير متوفرة، بنفس
+                          بيانات العميل، يظهر فورًا لباقي الصيادلة
+    ============================================================ */
+router.post("/orders/:id/checklist", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { pharmacyId, pharmacyName, availableItems, unavailableItems, price, notes } = req.body;
+
+        if (!pharmacyId || !pharmacyName) {
+            return res.status(400).json({ ok: false, error: "بيانات الصيدلية ناقصة" });
+        }
+
+        const order = await db.get(`SELECT * FROM orders WHERE id = $1`, [id]);
+        if (!order) return res.status(404).json({ ok: false, error: "الطلب غير موجود" });
+        if (normalizeStatus(order.status) !== "pending") {
+            return res.status(409).json({ ok: false, error: "تم التعامل مع هذا الطلب بالفعل" });
+        }
+
+        const available = Array.isArray(availableItems) ? availableItems : [];
+        const unavailable = Array.isArray(unavailableItems) ? unavailableItems : [];
+
+        /* ============================================================
+           الحالة 1: كل الأصناف اتعلمت "غير متوفر" — اعتذار كامل
+           ============================================================ */
+        if (available.length === 0) {
+            let rejectedBy = order.rejectedBy ? (typeof order.rejectedBy === "string" ? JSON.parse(order.rejectedBy) : order.rejectedBy) : [];
+            if (!rejectedBy.includes(pharmacyId)) rejectedBy.push(pharmacyId);
+
+            const activePharmacists = await db.all(`SELECT id FROM users WHERE role = 'pharmacist' AND status = 'active'`);
+            const activeIds = activePharmacists.map((p) => p.id);
+            const allRejected = activeIds.length > 0 && activeIds.every((pid) => rejectedBy.includes(pid));
+            const newStatus = allRejected ? "rejected" : "pending";
+
+            await db.run(
+                `UPDATE orders SET "rejectedBy" = $1::jsonb, status = $2, "updatedAt" = NOW() WHERE id = $3`,
+                [JSON.stringify(rejectedBy), newStatus, id]
+            );
+
+            await db.run(
+                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [id, `اعتذر عن التنفيذ — ${pharmacyName}`, "#ef4444"]
+            );
+            if (allRejected) {
+                await db.run(
+                    `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                    [id, "لم يتمكن أي صيدلي من التنفيذ", "#ef4444"]
+                );
+            }
+
+            return res.json({ ok: true, mode: "rejected", newStatus });
+        }
+
+        /* ============================================================
+           الحالة 2/3: فيه أصناف متوفرة — قبول كامل أو جزئي
+           ============================================================ */
+        const isFull = unavailable.length === 0;
+        const finalStatus = isFull ? "accepted" : "partial";
+        const workflowStatus = isFull ? "awaiting_receipt" : "received";
+        const executionPending = isFull ? 1 : 0;
+        const executionDeadline = isFull ? new Date(Date.now() + 5 * 60 * 1000).toISOString() : null;
+        const executionCompleted = isFull ? 0 : 1;
+
+        await db.run(
+            `UPDATE orders
+             SET status = $1, "pharmacyId" = $2, "pharmacyName" = $3,
+                 "availableItems" = $4::jsonb, "unavailableItems" = $5::jsonb,
+                 price = $6, notes = $7, "workflowStatus" = $8,
+                 "executionPending" = $9, "executionDeadline" = $10,
+                 "executionCompleted" = $11, "executionFailed" = 0,
+                 "executedAt" = $12, "updatedAt" = NOW()
+             WHERE id = $13`,
+            [
+                finalStatus, pharmacyId, pharmacyName,
+                JSON.stringify(available), JSON.stringify(unavailable),
+                price || null, notes || null, workflowStatus,
+                executionPending, executionDeadline, executionCompleted,
+                isFull ? null : new Date().toISOString(),
+                id,
+            ]
+        );
+
+        const timelineText = isFull
+            ? `قبل الطلب — ${pharmacyName}`
+            : `تنفيذ جزئي (${available.length} من ${available.length + unavailable.length} أدوية) — ${pharmacyName}`;
+        await db.run(
+            `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+            [id, timelineText, isFull ? "#10b981" : "#0ea5e9"]
+        );
+
+        /* لو فيه أصناف غير متوفرة، تتحول لطلب جديد مستقل يظهر لباقي الصيادلة */
+        let newOrderId = null;
+        if (unavailable.length) {
+            newOrderId = "sp" + Date.now();
+            await db.run(
+                `INSERT INTO orders (id, "customerName", phone, address, "prescriptionImage", status, notes, "createdAt")
+                 VALUES ($1, $2, $3, $4, $5, 'pending', $6, NOW())`,
+                [newOrderId, order.customerName, order.phone, order.address, order.prescriptionImage || null, `أدوية لم تتوفر في الطلب #${id}`]
+            );
+            for (const item of unavailable) {
+                const name = (item && typeof item === "object") ? (item.name || "") : String(item || "");
+                const unit = (item && typeof item === "object") ? (item.unit || "") : "";
+                if (!name) continue;
+                await db.run(
+                    `INSERT INTO order_items (order_id, medicine_name, unit, status) VALUES ($1, $2, $3, 'pending')`,
+                    [newOrderId, name, unit || null]
+                );
+            }
+            await db.run(
+                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [newOrderId, `طلب جديد — أدوية لم تتوفر في الطلب الأصلي #${id} (${pharmacyName})`, "#f59e0b"]
+            );
+        }
+
+        res.json({ ok: true, mode: isFull ? "accepted" : "partial", newOrderId });
+    } catch (err) {
+        console.error("❌ خطأ في تنفيذ Checklist الطلب:", err.message);
+        res.status(500).json({ ok: false, error: "فشل في تنفيذ العملية" });
     }
 });
 
