@@ -412,6 +412,16 @@ router.get("/orders", async (req, res) => {
 
 /* ============================================================
     جلب طلب واحد
+    ------------------------------------------------------------
+    ⚠️ (إصلاح) PostgreSQL بيرفض استخدام ORDER BY جوه aggregate فيه
+    DISTINCT إلا لو التعبير اللي بترتب بيه موجود في نفس الـ argument
+    list بتاعة الـ aggregate نفسها. كان هنا:
+        string_agg(DISTINCT oi.status, ',' ORDER BY oi.id)
+    وده بيرمي: "in an aggregate with DISTINCT, ORDER BY expressions
+    must appear in argument list" لأن oi.id مش من ضمن آرجيومنتس
+    الـ DISTINCT (اللي هي oi.status بس). الحقل ده (item_statuses)
+    أصلاً مش مستخدم في formatOrderRow، فمفيش داعي للترتيب هنا خالص —
+    تمت إزالة ORDER BY بالكامل (بالظبط زي GET /orders فوق).
     ============================================================ */
 router.get("/orders/:id", async (req, res) => {
     try {
@@ -429,7 +439,7 @@ router.get("/orders/:id", async (req, res) => {
                     '[]'
                 ) as items,
                 COALESCE(
-                    (SELECT string_agg(DISTINCT oi.status, ',' ORDER BY oi.id) FROM order_items oi WHERE oi.order_id = o.id),
+                    (SELECT string_agg(DISTINCT oi.status, ',') FROM order_items oi WHERE oi.order_id = o.id),
                     ''
                 ) as item_statuses
             FROM orders o
@@ -664,6 +674,15 @@ router.put("/orders/:id", async (req, res) => {
     بيرمي خطأ نوع بيانات في بوستجريس (varchar لا يقبل timestamp)
     فبتفشل الـ transaction كلها بـ 500 قبل ما توصل حتى لخطوة إنشاء
     الطلب الابن. دلوقتي بنبعت string جاهز (ISO) بدل NOW().
+
+    ⚠️ (ملحوظة مهمة) لو عندك على الداتابيز unique index/constraint
+    زي "one_active_order_per_phone" بيمنع أكتر من طلب "نشط" لنفس
+    رقم الهاتف، لازم يكون مستثني الطلبات اللي ليها parentOrderId
+    (يعني الطلبات "الأبناء" الناتجة من هنا)، وإلا هذا الـ INSERT
+    هيفشل بخطأ "duplicate key value violates unique constraint"
+    لأن الطلب الأصلي (partial) لسه "نشط" في نفس اللحظة اللي بننشئ
+    فيها الطلب الابن بنفس رقم الهاتف. شوف database.js — تم إضافة
+    migration بيصلح الـ index ده تلقائيًا عند تشغيل السيرفر.
 
     الـ webhooks (تنبيه نفاد الدواء) بتتبعت بعد نجاح الـ commit فقط،
     عشان محاولة إرسالها متعملش rollback للعملية الأساسية لو فشلت.
