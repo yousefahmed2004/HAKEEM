@@ -78,6 +78,59 @@ const all = async (sql, params = []) => {
 };
 
 /* ============================================================
+   🆕 withTransaction — بتشغّل مجموعة كويريز مرتبطة ببعض داخل
+   BEGIN/COMMIT/ROLLBACK واحدة على نفس الاتصال (client)، عشان لو
+   أي خطوة فشلت في النص، كل التعديلات السابقة ترجع زي ما كانت
+   (rollback) بدل ما تفضل عالقة بشكل جزئي (زي مشكلة "الطلب الأصلي
+   بقى partial بس الطلب الابن ما اتعملش" في التنفيذ الجزئي).
+   ------------------------------------------------------------
+   الاستخدام:
+       const result = await db.withTransaction(async (tx) => {
+           await tx.run("UPDATE ...", [...]);
+           const row = await tx.get("SELECT ...", [...]);
+           return row;
+       });
+   لو الدالة اللي جوه رمت أي error، بيتعمل ROLLBACK تلقائيًا
+   والـ error بيتعاد رميه لفوق عشان الـ route handler يمسكه.
+   ============================================================ */
+async function withTransaction(work) {
+    const conn = await getPool();
+    const client = await conn.connect();
+    try {
+        await client.query("BEGIN");
+
+        const tx = {
+            run: async (sql, params = []) => {
+                const processedParams = (params || []).map((p) => (Array.isArray(p) ? JSON.stringify(p) : p));
+                const result = await client.query(sql, processedParams);
+                return { id: result.rows[0]?.id || null, changes: result.rowCount };
+            },
+            get: async (sql, params = []) => {
+                const result = await client.query(sql, params);
+                return result.rows[0] || null;
+            },
+            all: async (sql, params = []) => {
+                const result = await client.query(sql, params);
+                return result.rows || [];
+            },
+        };
+
+        const result = await work(tx);
+        await client.query("COMMIT");
+        return result;
+    } catch (err) {
+        try {
+            await client.query("ROLLBACK");
+        } catch (rollbackErr) {
+            console.error("❌ فشل الـ ROLLBACK:", rollbackErr.message);
+        }
+        throw err;
+    } finally {
+        client.release();
+    }
+}
+
+/* ============================================================
    Create tables (PostgreSQL syntax) - Ordered correctly
    ============================================================ */
 const initializeDatabase = async () => {
@@ -155,15 +208,13 @@ const initializeDatabase = async () => {
         //       تجمع كل الأصناف تحت اسم الدواء الحقيقي بدون ما يتلخبط بالعبوة.
         await run(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT NULL`);
 
-        // 2.7. --- 🆕 (إصلاح) أعمدة rootOrderId / parentOrderId على جدول orders
+        // 2.7. --- أعمدة rootOrderId / parentOrderId على جدول orders
         //       دول مطلوبين لمنطق "التنفيذ الجزئي" (Order Splitting) في
-        //       routes/orders.js (POST /orders/:id/partial) واللي من غيرهم
-        //       كل عملية تنفيذ جزئي كانت بتفشل بـ "column does not exist"
-        //       ويرجع الطلب زي ما هو من غير أي تقسيم.
+        //       routes/orders.js (POST /orders/:id/partial)
         await run(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "rootOrderId" VARCHAR(100) DEFAULT NULL`);
         await run(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS "parentOrderId" VARCHAR(100) DEFAULT NULL`);
 
-        // 2.8. --- 🆕 جدول تسجيل اعتذار كل صيدلية عن كل صنف ناقص ضمن سلسلة الطلب
+        // 2.8. --- جدول تسجيل اعتذار كل صيدلية عن كل صنف ناقص ضمن سلسلة الطلب
         //       (rootOrderId) — بيُستخدم في حساب عدد الصيدليات المختلفة اللي
         //       اعتذرت عن نفس الصنف عشان نقرر لو وصلنا لحد "نفاد من السوق"
         await run(`
@@ -177,9 +228,8 @@ const initializeDatabase = async () => {
             )
         `);
 
-        // 2.9. --- 🆕 جدول تسجيل إرسال تنبيه "نفاد من السوق" للعميل
-        //       (مرة واحدة بس لكل صنف/سلسلة طلب، عشان مانبعتش نفس الرسالة
-        //       أكتر من مرة للعميل عن نفس الدواء)
+        // 2.9. --- جدول تسجيل إرسال تنبيه "نفاد من السوق" للعميل
+        //       (مرة واحدة بس لكل صنف/سلسلة طلب)
         await run(`
             CREATE TABLE IF NOT EXISTS medicine_shortage_alerts (
                 id SERIAL PRIMARY KEY,
@@ -305,6 +355,7 @@ module.exports = {
     run,
     get,
     all,
+    withTransaction,
     initializeDatabase,
     testConnection,
     toDbDateTime,
