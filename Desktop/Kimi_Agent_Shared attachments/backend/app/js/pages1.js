@@ -462,35 +462,6 @@ App.pages = App.pages || {};
     return stepButtons + cancelButton;
   }
 
-  /* ============================================================
-     🆕 Checklist الأدوية — يظهر تلقائيًا في صفحة الطلب المعلّق
-     كل صنف معلّم "متوفر" بشكل افتراضي؛ الصيدلي بيدوس عليه عشان
-     يحوّله لـ "غير متوفر". زرار واحد بس "تأكيد وإرسال" وخلاص.
-     ============================================================ */
-  function renderChecklistCard(o, capacityReached) {
-    return `
-      <div class="card" style="margin-bottom:20px;border:1.5px solid var(--sky-100);background:linear-gradient(135deg,var(--sky-50),#fff)">
-        <div class="card-head">
-          <div class="card-title">${icon("clipboard", 20)} Checklist توفر الأدوية</div>
-          <span class="small muted" style="max-width:260px">حدد المتوفر لديك — أي صنف تعلّمه "غير متوفر" هيتحول تلقائيًا لطلب جديد لباقي الصيادلة</span>
-        </div>
-        <div id="cl-items" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
-          ${o.items.map((m, i) => `
-            <div class="cl-row" data-idx="${i}" data-avail="1" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;border:1.5px solid #a7f3d0;background:#f0fdf9;border-radius:var(--r-sm);transition:all .15s;flex-wrap:wrap">
-              <span style="font-weight:700">${medLabel(m)}</span>
-              <button type="button" class="btn btn-sm cl-toggle" data-idx="${i}" style="background:#d1fae5;color:#047857;min-width:104px">${icon("check", 13)} متوفر</button>
-            </div>`).join("")}
-        </div>
-        <div class="field" style="margin-bottom:10px"><label>السعر الإجمالي للأدوية المتوفرة (جنيه) <span class="req">*</span></label>
-          <input class="input" id="cl-price" type="number" min="0" placeholder="مثال: 150" /></div>
-        <div class="field" style="margin:0 0 12px"><label>ملاحظات (اختياري)</label>
-          <input class="input" id="cl-notes" placeholder="أي ملاحظات إضافية..." /></div>
-        <div id="cl-error" class="login-error" style="margin-bottom:12px"></div>
-        <button class="btn btn-success" id="cl-submit" ${capacityReached ? "disabled" : ""}>${icon("checkCircle", 17)} تأكيد وإرسال</button>
-        ${capacityReached ? `<div class="small muted" style="margin-top:8px">وصلت للحد الأقصى من الطلبات النشطة</div>` : ""}
-      </div>`;
-  }
-
   function detailsHTML(o, user) {
     if (!o.timeline) o.timeline = [{ at: o.createdAt || new Date().toISOString(), text: "تم استلام الطلب من الشات بوت", color: "#0ea5e9" }];
     if (!o.rejectedBy) o.rejectedBy = [];
@@ -544,7 +515,21 @@ App.pages = App.pages || {};
           ${statusBadge(o.status)}
         </div>
 
-        ${canAct ? renderChecklistCard(o, capacityReached) : ""}
+        ${canAct ? `
+        <div class="card" style="margin-bottom:20px;border:1.5px solid var(--sky-100);background:linear-gradient(135deg,var(--sky-50),#fff)">
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <div style="flex:1;min-width:220px">
+              <div class="bold" style="font-size:15.5px">إجراء سريع على الطلب</div>
+              <div class="small muted">بمجرد القبول أو التنفيذ الجزئي يختفي الطلب من باقي الصيادلة، ويظهر في صفحة «طلباتي»</div>
+            </div>
+            <div style="display:flex;gap:9px;flex-wrap:wrap">
+              ${canConfirmReceipt ? `<button class="btn btn-success" id="act-receive">${icon("checkCircle", 17)} تأكيد الاستلام</button>` : ""}
+              ${canAct ? `<button class="btn btn-success" id="act-accept" ${capacityReached ? "disabled" : ""}>${icon("checkCircle", 17)} قبول الطلب</button>` : ""}
+              
+              ${canAct ? `<button class="btn btn-danger-soft" id="act-reject" ${capacityReached ? "disabled" : ""}>${icon("xCircle", 17)} لا أستطيع التنفيذ</button>` : ""}
+            </div>
+          </div>
+        </div>` : ""}
 
         ${canManageWorkflow ? `
         <div class="card" style="margin-bottom:20px">
@@ -616,6 +601,59 @@ App.pages = App.pages || {};
           </div>
         </div>
       </div>`;
+  }
+
+  /* ============================================================
+     نافذة التنفيذ الجزئي — تحديد الأصناف المتوفرة والسعر
+     ------------------------------------------------------------
+     🆕 بما إن o.items ممكن يبقوا objects {name, unit} دلوقتي، الـ
+     checkbox value بقى index الصنف جوه o.items بدل قيمة نصية مباشرة
+     (عشان attribute الـ value لازم يبقى سترينج بسيط)، وبعدين بنرجع
+     نجيب العنصر الأصلي بالـ index وقت الحفظ — ده كمان بيحافظ على
+     نفس reference جوه o.items عشان فلترة unavailableItems (فوق في
+     partialOrder داخل store.js) تفضل شغالة بنفس منطق المقارنة.
+     ============================================================ */
+  function openPartialModal(o, user) {
+    modal({
+      title: `تنفيذ جزئي — الطلب #${esc(o.id)}`,
+      icon: "split",
+      body: `
+        <p class="small muted" style="margin-bottom:12px">حدد الأدوية المتوفرة لديك من أصل ${o.items.length} صنف</p>
+        <div id="pm-items" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+          ${o.items.map((m, i) => `
+            <label style="display:flex;align-items:center;gap:9px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer">
+              <input type="checkbox" class="pm-item-check" value="${i}" data-idx="${i}" checked />
+              <span>${medLabel(m)}</span>
+            </label>`).join("")}
+        </div>
+        <div class="field" style="margin-bottom:10px"><label>السعر الإجمالي (جنيه)</label>
+          <input class="input" id="pm-price" type="number" min="0" placeholder="مثال: 150" /></div>
+        <div class="field" style="margin:0"><label>ملاحظات (اختياري)</label>
+          <input class="input" id="pm-notes" placeholder="أي ملاحظات إضافية..." /></div>
+        <div id="pm-error" class="login-error" style="margin-top:12px"></div>`,
+      footer: `
+        <button class="btn btn-primary" id="pm-save">${icon("check", 16)} تأكيد التنفيذ الجزئي</button>
+        <button class="btn btn-ghost" id="pm-cancel">إلغاء</button>`,
+      onOpen(overlay, close) {
+        overlay.querySelector("#pm-cancel").onclick = close;
+        overlay.querySelector("#pm-save").onclick = () => {
+          const err = overlay.querySelector("#pm-error");
+          const fail = (m) => { err.textContent = m; err.classList.add("show"); };
+          const checkedIdx = [...overlay.querySelectorAll(".pm-item-check:checked")].map((c) => Number(c.value));
+          const checked = checkedIdx.map((i) => o.items[i]);
+          const price = Number(overlay.querySelector("#pm-price").value);
+          const notes = overlay.querySelector("#pm-notes").value.trim();
+          if (!checked.length) return fail("حدد صنفًا واحدًا على الأقل كمتوفر");
+          if (checked.length === o.items.length) return fail("لو كل الأصناف متوفرة استخدم زر «قبول الطلب» بدلاً من التنفيذ الجزئي");
+          if (!Number.isFinite(price) || price <= 0) return fail("أدخل سعرًا صحيحًا أكبر من صفر");
+          const result = S().partialOrder(o.id, user, checked, price, notes);
+          if (!result) return fail("تعذر تنفيذ العملية، حاول مرة أخرى");
+          close();
+          toast("تم تنفيذ الطلب جزئيًا", `#${o.id}`, "success");
+          App.router.refresh();
+        };
+      },
+    });
   }
 
   /* ============================================================
@@ -692,80 +730,42 @@ App.pages = App.pages || {};
         };
       }
 
-      /* ============================================================
-         🆕 Checklist توفر الأدوية — الفعل الوحيد على الطلب المعلّق
-         ============================================================ */
-      const canAct = user.role === "pharmacist" && o.status === "pending" && !(o.rejectedBy && o.rejectedBy.includes(user.id));
-      if (canAct) {
-        document.querySelectorAll(".cl-toggle").forEach((btn) => {
-          btn.onclick = () => {
-            const row = btn.closest(".cl-row");
-            const isAvail = row.dataset.avail === "1";
-            const next = isAvail ? "0" : "1";
-            row.dataset.avail = next;
-            if (next === "1") {
-              row.style.borderColor = "#a7f3d0";
-              row.style.background = "#f0fdf9";
-              btn.style.background = "#d1fae5";
-              btn.style.color = "#047857";
-              btn.innerHTML = `${icon("check", 13)} متوفر`;
+      /* قبول الطلب بالكامل — يتطلب تأكيدًا، ولا يمكن التراجع عنه بعد القبول */
+      const acceptBtn = document.getElementById("act-accept");
+      if (acceptBtn) acceptBtn.onclick = () => {
+        confirmModal({
+          title: "تأكيد قبول الطلب",
+          icon: "checkCircle",
+          message: `هل أنت متأكد من قبول الطلب <b>#${esc(o.id)}</b>؟ سيصبح هذا الطلب مسؤوليتك ولن يظهر بعدها لباقي الصيادلة.`,
+          confirmText: "نعم، قبول الطلب",
+          onConfirm() {
+            const result = S().acceptOrder(o.id, user);
+            if (result) {
+              toast("تم قبول الطلب بنجاح", `#${o.id}`, "success");
             } else {
-              row.style.borderColor = "#fecaca";
-              row.style.background = "#fff5f5";
-              btn.style.background = "#fee2e2";
-              btn.style.color = "#b91c1c";
-              btn.innerHTML = `${icon("x", 13)} غير متوفر`;
+              toast("تعذر قبول الطلب", "ربما وصلت للحد الأقصى من الطلبات النشطة أو تم التعامل معه بالفعل", "error");
             }
-          };
+            refresh();
+          },
         });
+      };
 
-        const submitBtn = document.getElementById("cl-submit");
-        if (submitBtn) submitBtn.onclick = () => {
-          const rows = [...document.querySelectorAll(".cl-row")];
-          const decisions = rows.map((r) => r.dataset.avail === "1");
-          const anyAvailable = decisions.some(Boolean);
-          const allAvailable = decisions.every(Boolean);
-          const err = document.getElementById("cl-error");
-          const fail = (m) => { err.textContent = m; err.classList.add("show"); };
-          err.classList.remove("show");
-
-          let price = null;
-          if (anyAvailable) {
-            price = Number(document.getElementById("cl-price").value);
-            if (!Number.isFinite(price) || price <= 0) return fail("أدخل سعرًا صحيحًا أكبر من صفر للأدوية المتوفرة");
-          }
-          const notes = document.getElementById("cl-notes").value.trim();
-
-          confirmModal({
-            title: !anyAvailable ? "تأكيد الاعتذار عن الطلب" : allAvailable ? "تأكيد قبول الطلب بالكامل" : "تأكيد التنفيذ حسب الـ Checklist",
-            icon: !anyAvailable ? "xCircle" : "checkCircle",
-            danger: !anyAvailable,
-            message: !anyAvailable
-              ? `هل أنت متأكد من الاعتذار عن تنفيذ الطلب <b>#${esc(o.id)}</b>؟ سيظل الطلب ظاهرًا لباقي الصيادلة ولا يمكن التراجع.`
-              : allAvailable
-                ? `هل أنت متأكد من قبول الطلب <b>#${esc(o.id)}</b> بالكامل؟ سيصبح هذا الطلب مسؤوليتك.`
-                : `سيتم قفل الأصناف المتوفرة عليك، والأصناف الغير متوفرة هتتحول تلقائيًا لطلب جديد يظهر لباقي الصيادلة. لا يمكن التراجع عن هذه الخطوة.`,
-            confirmText: "نعم، تأكيد",
-            async onConfirm() {
-              submitBtn.disabled = true;
-              submitBtn.innerHTML = "جاري الإرسال...";
-              const result = await S().submitChecklist(o.id, user, decisions, price, notes);
-              if (result) {
-                toast(
-                  !anyAvailable ? "تم الاعتذار عن الطلب" : allAvailable ? "تم قبول الطلب بنجاح" : "تم تنفيذ الطلب حسب الـ Checklist",
-                  `#${o.id}${!allAvailable && anyAvailable ? " — والأدوية الناقصة أصبحت طلبًا جديدًا لباقي الصيادلة" : ""}`,
-                  !anyAvailable ? "warning" : "success"
-                );
-              } else {
-                toast("تعذر تنفيذ العملية", "ربما وصلت للحد الأقصى من الطلبات النشطة أو تم التعامل مع الطلب بالفعل", "error");
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = `${icon("checkCircle", 17)} تأكيد وإرسال`;
-              }
-              refresh();
-            },
-          });
-        };
-      }
+      /* الاعتذار عن تنفيذ الطلب — يتطلب تأكيدًا، ولا يمكن التراجع عنه */
+      const rejectBtn = document.getElementById("act-reject");
+      if (rejectBtn) rejectBtn.onclick = () => {
+        confirmModal({
+          title: "الاعتذار عن تنفيذ الطلب",
+          icon: "xCircle",
+          danger: true,
+          message: `هل أنت متأكد من الاعتذار عن تنفيذ الطلب <b>#${esc(o.id)}</b>؟ سيظل الطلب ظاهرًا لباقي الصيادلة ولن تتمكن من التراجع عن الاعتذار.`,
+          confirmText: "نعم، اعتذار",
+          onConfirm() {
+            S().rejectOrder(o.id, user);
+            toast("تم الاعتذار عن الطلب", `#${o.id}`, "warning");
+            refresh();
+          },
+        });
+      };
 
       /* تأكيد استلام الطلب (بعد القبول) — يتطلب تأكيدًا، خطوة تُنفّذ مرة واحدة فقط */
       const receiveBtn = document.getElementById("act-receive");
@@ -786,6 +786,10 @@ App.pages = App.pages || {};
           },
         });
       };
+
+      /* التنفيذ الجزئي — يفتح نافذة لاختيار الأصناف المتوفرة والسعر (تعمل كتأكيد بحد ذاتها) */
+      const partialBtn = document.getElementById("act-partial");
+      if (partialBtn) partialBtn.onclick = () => openPartialModal(o, user);
 
       /* أزرار تغيير حالة سير العمل (استلام / تجهيز / جاهز / خرج للتوصيل / تسليم / إلغاء)
          — ترتيب إجباري: خطوة واحدة تالية فقط متاحة، وكل خطوة تتطلب تأكيدًا نهائيًا
