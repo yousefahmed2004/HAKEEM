@@ -148,6 +148,20 @@ window.App = window.App || {};
             );
         },
 
+        /* ---------- 🆕 التنفيذ الجزئي (Partial Fulfillment + Order Splitting) ----------
+           payload = { pharmacyId, pharmacyName, availableItems, unavailableItems, price, notes }
+           الرد: { ok, orderId, childOrderId, shortageAlerts } */
+        async partialOrder(id, payload) {
+            return apiRequest(`/orders/${id}/partial`, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
+        },
+
+        async getOrderShortages(id) {
+            return apiRequest(`/orders/${id}/shortages`);
+        },
+
         async getOrdersStats() {
             return apiRequest("/orders-stats");
         }
