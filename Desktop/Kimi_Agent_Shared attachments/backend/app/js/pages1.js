@@ -477,6 +477,13 @@ App.pages = App.pages || {};
     if (!o.unavailableItems) o.unavailableItems = [];
     const st = STATUS[o.status] || STATUS.pending;
     const canAct = user.role === "pharmacist" && o.status === "pending" && !o.rejectedBy.includes(user.id);
+    /* 🆕 بوتن "غير متوفر في السوق" — بيظهر بس على الطلبات "الفرعية" الناتجة
+       عن تنفيذ جزئي سابق (parentOrderId موجود)، مش على أي طلب أصلي كامل.
+       الفكرة: الطلب الفرعي ده أصنافه أصلاً كانت "غير متوفرة" عند صيدلية
+       سابقة، فلو 5 صيدليات مختلفة ضغطوا عليه هنا (بدل ما يفتحوا Checklist
+       التنفيذ الجزئي من جديد) يتبعت تلقائيًا تنبيه نفاد للعميل — نفس آلية
+       الـ 5 صيدليات المستخدمة في التنفيذ الجزئي بالظبط (شوف orders.js) */
+    const canReportUnavailable = canAct && !!o.parentOrderId;
     const canConfirmReceipt = user.role === "pharmacist" && o.status === "accepted" && o.executionPending && o.pharmacyId === user.id;
     /* بعد التعديل: "closed" هي امتداد طبيعي لـ "accepted" (الطلب خرج للتوصيل واتقفل)
        فلازم الصيدلي المسؤول عنه يفضل يقدر يشوف تفاصيله ويكمل خطوة "تم التسليم" لو لسه ماوصلتش.
@@ -545,6 +552,7 @@ App.pages = App.pages || {};
               ${canAct ? `<button class="btn btn-success" id="act-accept" ${capacityReached ? "disabled" : ""}>${icon("checkCircle", 17)} قبول الطلب بالكامل</button>` : ""}
               ${canAct ? `<button class="btn btn-soft" id="act-partial" ${capacityReached ? "disabled" : ""}>${icon("split", 17)} تنفيذ جزئي (Checklist)</button>` : ""}
               ${canAct ? `<button class="btn btn-danger-soft" id="act-reject" ${capacityReached ? "disabled" : ""}>${icon("xCircle", 17)} لا أستطيع التنفيذ</button>` : ""}
+              ${canReportUnavailable ? `<button class="btn btn-danger-soft" id="act-unavailable">${icon("alert", 17)} غير متوفر في السوق</button>` : ""}
             </div>
           </div>
         </div>` : ""}
@@ -732,6 +740,35 @@ App.pages = App.pages || {};
   }
 
   /* ============================================================
+     🆕 نافذة تأكيد الإبلاغ عن عدم توفر طلب "فرعي" في السوق
+     ------------------------------------------------------------
+     بتفتح لما الصيدلي يدوس على بوتن "غير متوفر في السوق" — ده
+     تأكيد بسيط (زي reject) بس بيوضّح إن ده بيسجّل بلاغ نقص لكل
+     أصناف الطلب، وممكن يتبعت تنبيه تلقائي للعميل لو وصل العدد لـ 5
+     ============================================================ */
+  function confirmReportUnavailable(o, user, refresh) {
+    confirmModal({
+      title: "الإبلاغ عن عدم توفر في السوق",
+      icon: "alert",
+      danger: true,
+      message: `هل أنت متأكد إن أصناف الطلب <b>#${esc(o.id)}</b> دي مش متوفرة عندك أو في السوق حاليًا؟ سيتم تسجيل بلاغ نقص لهذه الأصناف، ولو وصل عدد الصيدليات المبلّغة لـ 5 صيدليات مختلفة سيتم إبلاغ العميل تلقائيًا بنفاد الدواء.`,
+      confirmText: "نعم، أبلغ عن عدم التوفر",
+      async onConfirm() {
+        const result = await S().reportUnavailableInMarket(o.id, user);
+        if (result) {
+          toast("تم تسجيل البلاغ", `#${o.id}`, "warning");
+          if (Array.isArray(result.shortageAlerts) && result.shortageAlerts.length) {
+            toast("تم إبلاغ العميل بنفاد دواء من السوق", result.shortageAlerts.join("، "), "warning", 7500);
+          }
+        } else {
+          toast("تعذر تسجيل البلاغ", "قد يكون الطلب تم التعامل معه بالفعل", "error");
+        }
+        refresh();
+      },
+    });
+  }
+
+  /* ============================================================
      تكبير صورة الروشتة — لايت بوكس بسيط بدون كارت/عنوان/تعتيم خلفية
      (الصورة تظهر في نص الشاشة فقط، والضغط في أي مكان أو Esc يقفلها)
      ============================================================ */
@@ -836,6 +873,11 @@ App.pages = App.pages || {};
           },
         });
       };
+
+      /* 🆕 الإبلاغ عن عدم توفر الطلب "الفرعي" في السوق (بوتن رابع) —
+         متاح فقط للطلبات الناتجة عن تنفيذ جزئي سابق (parentOrderId) */
+      const unavailableBtn = document.getElementById("act-unavailable");
+      if (unavailableBtn) unavailableBtn.onclick = () => confirmReportUnavailable(o, user, refresh);
 
       /* تأكيد استلام الطلب (بعد القبول) — يتطلب تأكيدًا، خطوة تُنفّذ مرة واحدة فقط */
       const receiveBtn = document.getElementById("act-receive");
