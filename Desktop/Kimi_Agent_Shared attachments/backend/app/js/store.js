@@ -220,36 +220,6 @@ window.App = window.App || {};
      فتح الصفحة. */
   let knownOrderIds = null;
 
-  /* ملاحظة هامة:
-     مهلة التنفيذ (5 دقايق) بتتحسم نهائيًا في السيرفر (orders.js -> expireOverdueOrders)
-     مش في المتصفح، عشان لو فاتح أكتر من تاب (أدمن / صيدلي تاني) محدش يرجّع
-     الطلب pending بشكل مستقل عن الباقي. كمان أي خطوة توركفلو (تجهيز/جاهز/خرج
-     للتوصيل...) بتصفّر executionPending/executionDeadline فورًا عشان المهلة
-     متفضلش شغالة في الخلفية وترجّع الطلب pending حتى لو اتنفذ فعليًا.
-
-     ملاحظة إضافية: عند "خرج للتوصيل" (تم الشحن)، الباك إند بيقفل الطلب
-     مباشرة (status = "closed") وكمان بيقفل الـ WhatsApp session بتاعة
-     العميل — كل ده من غير أي وسيط خارجي (n8n). الفرونت إند هنا لازم
-     يتعامل مع "closed" كامتداد طبيعي لـ "accepted" في كل الأماكن اللي
-     كانت بتشيك على "accepted" بس، عشان الطلب يفضل ظاهر للصيدلي وضمن
-     الإحصائيات لحد ما يتسلّم فعليًا.
-
-     ملاحظة 🆕 (التنفيذ الجزئي): كل منطق تقسيم الطلب (Order Splitting)
-     واحتساب نقص الأدوية وتنبيه العميل بقى مركزي بالكامل في الباك إند
-     (POST /orders/:id/partial) — الفرونت إند هنا بس بيبعت الأصناف
-     المتوفرة/الناقصة والسعر، وياخد النتيجة (rootOrderId, childOrderId,
-     shortageAlerts) ويعرضها، من غير أي منطق تقسيم محلي، عشان احتساب
-     عدد الصيدليات المختلفة لازم يبقى دقيق ومركزي (race-safe) بدل ما
-     يتحسب في كل متصفح لوحده.
-
-     ملاحظة 🆕🆕 (التنفيذ الجزئي كطلب عادي بالكامل): بعد التنفيذ الجزئي،
-     الطلب بيوصله workflowStatus = "received" مباشرة من الباك إند (بدل
-     "awaiting_receipt")، وبعد كده لازم يمشي في نفس خطوات أي طلب accepted
-     بالظبط (تجهيز → جاهز → خرج للتوصيل → تسليم) — عشان كده
-     updateOrderWorkflowStatus تحت بقت بتقبل status = "partial" بالظبط
-     زي "accepted"/"closed"، وكمان canManageWorkflow / canShowPhone في
-     pages1.js بقوا يشملوا "partial" كمان. */
-
   async function syncOrders() {
     try {
       const res = await App.api.getOrders();
@@ -266,17 +236,6 @@ window.App = window.App || {};
           if (o.parentOrderId === undefined) o.parentOrderId = null;
         });
 
-        /* ============================================================
-           🔔 اكتشاف الطلبات الجديدة اللي وصلت فعليًا (من n8n/الشات بوت
-           أو من تقسيم طلب أثناء التنفيذ الجزئي)
-           ------------------------------------------------------------
-           قبل كده كانت الدالة دي بتستبدل db.orders بصمت من غير ما تنبّه
-           حد إن فيه طلب جديد وصل على أرض الواقع؛ الصوت والتنبيه كانا
-           بيشتغلوا بس مع "محاكاة الطلبات" اليدوية (App.simulation.fireOnce)
-           لأنها هي الوحيدة اللي كانت بتنادي notifyNewOrder مباشرة.
-           هنا بنقارن IDs الطلبات الجديدة بالمعروفة، ولو لقينا IDs جديدة
-           (بعد أول تحميل للصفحة) بننادي App.notifications.orderArrived
-           لكل واحد منها عشان يشغّل نفس صوت/تنبيه المحاكاة بالظبط. */
         const incomingIds = new Set(res.orders.map((o) => o.id));
         if (knownOrderIds !== null) {
           const newlyArrived = res.orders.filter((o) => !knownOrderIds.has(o.id));
@@ -555,22 +514,6 @@ window.App = window.App || {};
       return o || null;
     },
 
-    /* ============================================================
-       🆕 fetchOrderTimeline(id) — جلب الطلب الكامل (بالتايملاين
-       الحقيقي) من GET /orders/:id وتحديث النسخة المحلية بيه.
-       ------------------------------------------------------------
-       السبب: GET /orders (قائمة كل الطلبات) بترجع كل الطلبات من
-       غير عمود timeline خالص (شوف formatOrderRow في orders.js
-       بالباك إند)، فكانت صفحة تفاصيل الطلب دايمًا بتشوف التايملاين
-       الافتراضي بسطر واحد بس ("تم استلام الطلب من الشات بوت") لأن
-       getOrder() هنا بيقرأ من الكاش المحلي اللي جاي من syncOrders()
-       (اللي بينادي getOrders فقط). التايملاين الحقيقي (بكل الخطوات:
-       قبول/تجهيز/تسليم/تنفيذ جزئي...) موجود بس في استعلام GET
-       /orders/:id. الدالة دي بتنادي الإندبوينت ده وتحدّث db.orders
-       بالنتيجة الكاملة (بما فيها timeline)، وترجع true لو التايملاين
-       اتغيّر فعلاً عن اللي كان محفوظ محليًا (عشان نعرف نحدّث الـ DOM
-       من غير ما نعمل refresh كامل للصفحة كل شوية).
-       ============================================================ */
     async fetchOrderTimeline(id) {
       try {
         const res = await App.api.getOrder(id);
@@ -647,30 +590,10 @@ window.App = window.App || {};
       const timelineColor = "#10b981";
       o.timeline.push({ at: new Date().toISOString(), text: timelineText, color: timelineColor });
       save(); emit();
-      /* مهلة الـ 5 دقايق دي بتتراقب سيرفريًا (expireOverdueOrders في orders.js).
-         أي خطوة تالية (تأكيد استلام أو أي إجراء توركفلو) هتصفّرها فورًا —
-         شوف confirmReceiptOrder و updateOrderWorkflowStatus تحت. */
       saveOrderBackend(o, timelineText, timelineColor);
       return o;
     },
 
-    /* ============================================================
-       🆕 التنفيذ الجزئي — بقى منفّذ بالكامل عبر الباك إند
-       ------------------------------------------------------------
-       المسؤولية بقت مقسومة كده:
-       - الفرونت إند (هنا): بيتحقق محليًا بسرعة إن الطلب لسه pending
-         ومحصلش اعتذار من نفس الصيدلي (تجربة استخدام أسرع بس مش
-         مصدر الحقيقة)، وبعدين بيبعت الأصناف المتوفرة/الناقصة والسعر
-         للباك إند، وياخد النتيجة كما هي.
-       - الباك إند (POST /orders/:id/partial): هو اللي بيقفل الطلب
-         الحالي، وبيسجّل نقص كل صنف، وبيحسب عدد الصيدليات المختلفة
-         اللي اعتذرت عن نفس الصنف عبر كل سلسلة الطلب (rootOrderId)،
-         وبيبعت تنبيه نفاد للعميل لو وصل العدد لـ 5 صيدليات مختلفة،
-         وبينشئ طلب جديد بالأصناف المتبقية (اللي لسه معملهاش تنبيه)
-         عشان يظهر لباقي الصيادلة.
-       بترجع { ok, orderId, childOrderId, shortageAlerts } أو null
-       لو فشلت العملية.
-       ============================================================ */
     async partialOrder(id, user, available, unavailable, price, notes) {
       const o = this.getOrder(id);
       if (!o || o.status !== "pending" || (o.rejectedBy && o.rejectedBy.includes(user.id))) return null;
@@ -690,6 +613,36 @@ window.App = window.App || {};
         return result;
       } catch (e) {
         console.error("فشل تنفيذ الطلب جزئيًا:", e);
+        return null;
+      }
+    },
+
+    /* ============================================================
+       🆕 markItemUnavailable — "الدواء غير متوفر" لصنف محدد
+       ------------------------------------------------------------
+       متاحة بس على طلبات الكمية المتبقية (o.rootOrderId موجود) —
+       السيرفر نفسه بيرفض الطلب لو الشرط ده مش متحقق، وهنا بس بنعمل
+       فحص سريع محلي للـ UX قبل ما نبعت. العدّاد ومنطق التنبيه بالكامل
+       على السيرفر (نفس آلية medicine_shortage_reports المستخدمة في
+       partialOrder) — من غير أي تكرار هنا.
+       بترجع { ok, item, threshold, reachedThreshold, orderClosed } أو
+       null لو فشلت العملية.
+       ============================================================ */
+    async markItemUnavailable(orderId, itemId, user) {
+      const o = this.getOrder(orderId);
+      if (!o || o.status !== "pending" || !o.rootOrderId) return null;
+
+      try {
+        const result = await App.api.markItemUnavailable(orderId, itemId, {
+          pharmacyId: user.id,
+          pharmacyName: user.pharmacyName,
+        });
+        if (!result || !result.ok) return null;
+
+        await syncOrders();
+        return result;
+      } catch (e) {
+        console.error("فشل تبليغ عدم توفر الصنف:", e);
         return null;
       }
     },
@@ -738,34 +691,6 @@ window.App = window.App || {};
       return o;
     },
 
-    /* ============================================================
-       تحديث حالة سير عمل الطلب (استلام / تجهيز / جاهز / خرج للتوصيل / تسليم / إلغاء)
-       — يستقبل price اختياريًا (بيوصل من نافذة تأكيد الشحن) ويحفظه على الطلب
-       — ⚠️ أهم نقطة: بيصفّر executionPending/executionDeadline فورًا مع أي
-         خطوة توركفلو، عشان مهلة الـ 5 دقايق (المحسوبة من وقت "قبول الطلب")
-         متفضلش شغالة في الخلفية وترجّع الطلب pending حتى لو الصيدلي كان
-         فعليًا بيتحرك بين الخطوات (تجهيز → جاهز → خرج للتوصيل...)
-       — عند "خرج للتوصيل": الباك إند (routes/orders.js) هو اللي بيقفل
-         الطلب فعليًا (status = "closed") وبيقفل الـ WhatsApp session
-         بتاعة العميل مباشرة — مفيش أي اعتماد على n8n في القفل ده،
-         الفرونت إند هنا بس بيبعت workflowStatus ويستنى رد الباك إند
-         (updateOrderWorkflowStatus / saveOrderBackend) اللي هيرجّع
-         الحالة النهائية "closed" في المزامنة التالية (syncOrders).
-       — ⚠️ (إصلاح) بعد "خرج للتوصيل" الطلب بيبقى status = "closed" محليًا،
-         فلازم الشرط هنا يقبل "accepted" و"closed" مع بعض بالظبط زي
-         confirmReceiptOrder فوق، وإلا أي خطوة تالية (زي "تم التسليم")
-         هترفض بمجرد ما الطلب يتقفل عند "خرج للتوصيل".
-       — 🆕 (إصلاح جوهري) الشرط تحت بقى يقبل "partial" كمان بالظبط زي
-         "accepted"/"closed" — قبل كده الطلب الجزئي كان بيوصل لخطوة
-         "تم استلام الطلب" بس ويقف، من غير ما يقدر الصيدلي يكمل خطوات
-         (تجهيز/جاهز/خرج للتوصيل/تسليم) ولا يتسجل أي حاجة تانية في
-         التايملاين، عشان الدالة دي كانت بترفض أي طلب مش accepted/closed.
-         دلوقتي الطلب الجزئي بيتصرف بالظبط زي الطلب العادي المقبول
-         بالكامل من هنا لحد ما يتسلّم.
-       — عند "خرج للتوصيل" يتم أيضًا إرسال إشعار الشحن إلى n8n عبر البروكسي
-         (ده لسه محتاجينه بس عشان يوصل السعر والعنوان لشركة الشحن، مش
-         عشان يقفل السيشن — القفل بقى مسؤولية الباك إند وحده)
-       ============================================================ */
     updateOrderWorkflowStatus(id, user, workflowStatus, price) {
       const o = this.getOrder(id);
       if (!o || !(o.status === "accepted" || o.status === "partial" || o.status === "closed") || o.pharmacyId !== user.id) return null;
@@ -783,14 +708,10 @@ window.App = window.App || {};
         o.price = Number(price);
       }
 
-      /* إلغاء مهلة التنفيذ فور اتخاذ أي إجراء توركفلو — انظر الشرح أعلى الدالة */
       o.executionPending = false;
       o.executionDeadline = null;
 
       o.workflowStatus = workflowStatus;
-      /* الحالة النهائية (closed) هتتحدد في الباك إند نفسه لما يوصله
-         workflowStatus = "out_for_delivery" — هنا بنعكسها محليًا فورًا
-         كمان عشان الواجهة تتحدث فورًا من غير ما تستنى المزامنة */
       o.workflowStatus = workflowStatus;
 if (workflowStatus === "out_for_delivery") {
   o.status = "closed";
@@ -816,8 +737,6 @@ if (workflowStatus === "cancelled") {
       save(); emit();
       saveOrderBackend(o, timelineText, timelineColor);
 
-      /* إرسال إشعار الشحن إلى n8n عند خروج الطلب للتوصيل فعليًا
-         (بس لتوصيل بيانات الشحن لشركة التوصيل — مش لقفل أي session) */
       if (workflowStatus === "out_for_delivery") {
         App.webhook.sendStatusUpdate(o).then((ok) => {
           if (!ok) {
@@ -833,12 +752,8 @@ if (workflowStatus === "cancelled") {
       return this.confirmReceiptOrder(id, user);
     },
 
-    /* استقبال طلب جديد (يُستدعى من Webhook أو المحاكاة) */
     addOrder(order) {
       db.orders.push(order);
-      /* نسجّل الـ ID فورًا في الطلبات المعروفة عشان أول Sync بعد كده
-         متعتبروش "طلب جديد وصل" وتنبّه عليه مرة تانية زيادة عن اللازم
-         (هو أصلاً اتنبّه عليه محليًا لحظة إضافته من app.js) */
       if (knownOrderIds) knownOrderIds.add(order.id);
       else knownOrderIds = new Set([order.id]);
       save(); emit();
@@ -896,14 +811,6 @@ if (workflowStatus === "cancelled") {
       return { points: profile.executionPoints || 100, rate, badge };
     },
 
-    /* ============================================================
-       🆕 medicineStats() — بترجّع اسم الدواء "منفصل" عن نوع العبوة
-       ------------------------------------------------------------
-       بتستخدم medicineName() فوق عشان تجمع كل الأصناف اللي نفس
-       الاسم تحت مفتاح واحد بغض النظر عن العبوة (علبة/شريط/...)،
-       سواء كانت items جايه كـ objects {name, unit} من الباك إند
-       الجديد أو سترينج قديم من بيانات تجريبية سابقة.
-       ============================================================ */
     medicineStats() {
       const counts = {};
       db.orders.forEach((o) => o.items.forEach((m) => {
