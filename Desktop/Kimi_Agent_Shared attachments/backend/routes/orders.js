@@ -63,14 +63,6 @@ function splitMedicineItem(raw) {
     return { name: str, unit: "" };
 }
 
-/* ============================================================
-    🆕 resolveItems — بترجّع كل صنف مع id/unavailableAttempts/
-    availabilityStatus لو جايين من order_items (json_agg)، عشان
-    الفرونت إند يقدر يعرض زرار "الدواء غير متوفر (n/5)" لكل صنف
-    ويستهدفه بالـ id الصح. لو الصنف جاي من مصدر قديم (سترينج/بدون
-    order_items row) بيفضل من غير id فالزرار مبيظهرش له — سلوك آمن
-    رجعيًا مع بيانات تجريبية قديمة.
-    ============================================================ */
 function resolveItems(order) {
     if (order.items) {
         let parsedItems = order.items;
@@ -79,18 +71,7 @@ function resolveItems(order) {
         }
         if (Array.isArray(parsedItems) && parsedItems.length) {
             return parsedItems
-                .map((it) => {
-                    if (it && typeof it === "object") {
-                        return {
-                            name: it.name || "",
-                            unit: it.unit || "",
-                            ...(it.id != null ? { id: it.id } : {}),
-                            unavailableAttempts: Number(it.unavailableAttempts || 0),
-                            availabilityStatus: it.availabilityStatus || "searching",
-                        };
-                    }
-                    return splitMedicineItem(it);
-                })
+                .map((it) => (it && typeof it === "object" ? { name: it.name || "", unit: it.unit || "" } : splitMedicineItem(it)))
                 .filter((it) => it.name);
         }
     }
@@ -458,13 +439,7 @@ router.get("/orders", async (req, res) => {
                 o.*,
                 o.items as "rawItems",
                 COALESCE(
-                    (SELECT json_agg(json_build_object(
-                        'id', oi.id,
-                        'name', oi.medicine_name,
-                        'unit', oi.unit,
-                        'unavailableAttempts', oi.unavailable_attempts,
-                        'availabilityStatus', oi.availability_status
-                    ) ORDER BY oi.id)
+                    (SELECT json_agg(json_build_object('name', oi.medicine_name, 'unit', oi.unit) ORDER BY oi.id)
                      FROM order_items oi WHERE oi.order_id = o.id),
                     '[]'
                 ) as items,
@@ -506,13 +481,7 @@ router.get("/orders/:id", async (req, res) => {
                 o.*,
                 o.items as "rawItems",
                 COALESCE(
-                    (SELECT json_agg(json_build_object(
-                        'id', oi.id,
-                        'name', oi.medicine_name,
-                        'unit', oi.unit,
-                        'unavailableAttempts', oi.unavailable_attempts,
-                        'availabilityStatus', oi.availability_status
-                    ) ORDER BY oi.id)
+                    (SELECT json_agg(json_build_object('name', oi.medicine_name, 'unit', oi.unit) ORDER BY oi.id)
                      FROM order_items oi WHERE oi.order_id = o.id),
                     '[]'
                 ) as items,
@@ -834,14 +803,9 @@ router.post("/orders/:id/partial", async (req, res) => {
                 childOrderId = newChildId;
 
                 for (const item of remainingForNewOrder) {
-                    const cnt = await tx.get(
-                        `SELECT COUNT(DISTINCT "pharmacyId")::int as cnt FROM medicine_shortage_reports WHERE "rootOrderId" = $1 AND medicine_name = $2`,
-                        [rootOrderId, item.name]
-                    );
                     await tx.run(
-                        `INSERT INTO order_items (order_id, medicine_name, unit, status, unavailable_attempts, availability_status)
-                         VALUES ($1, $2, $3, 'pending', $4, 'searching')`,
-                        [childOrderId, item.name, item.unit || null, cnt ? cnt.cnt : 0]
+                        `INSERT INTO order_items (order_id, medicine_name, unit, status) VALUES ($1, $2, $3, 'pending')`,
+                        [childOrderId, item.name, item.unit || null]
                     );
                 }
 
@@ -884,196 +848,6 @@ router.post("/orders/:id/partial", async (req, res) => {
         if (status === 500) {
             console.error("❌ خطأ في التنفيذ الجزئي:", err.message);
             return res.status(500).json({ ok: false, error: "فشل في تنفيذ الطلب جزئيًا" });
-        }
-        res.status(status).json({ ok: false, error: err.message });
-    }
-});
-
-/* ============================================================
-    🆕 "الدواء غير متوفر" — تبليغ صيدلية عن عدم توفر صنف محدد
-    ------------------------------------------------------------
-    ده إجراء مستقل تمامًا عن "لا أستطيع التنفيذ" (رفض الطلب كله)
-    و"إلغاء الطلب" (workflow cancel بعد القبول) — منطق مختلف
-    ومنفصل زي ما طلب في الـ feature request، ومبيلمسش أي منهم.
-
-    الإجراء ده متاح بس على الطلبات اللي هي *كمية متبقية* من تنفيذ
-    جزئي سابق (يعني عندها rootOrderId) — مش على أي طلب جديد لسه
-    معملهوش partial، عشان لسه فيه فرصة إن صيدلية توفّر الصنف بالكامل
-    أو جزئيًا. لو الصيدلي مش قادر يوفّر صنف معين في طلب جديد، الأداة
-    الصح هي "تنفيذ جزئي" (Checklist) اللي أصلاً بتعمل بالظبط نفس
-    التسجيل في medicine_shortage_reports.
-
-    العدّاد الحقيقي (source of truth) هو جدول medicine_shortage_reports
-    نفسه المستخدم في /orders/:id/partial — مفيش عدّاد تاني موازي.
-    unavailable_attempts/availability_status على order_items هي
-    نسخة كاش بس للعرض في الواجهة، بتتحدّث من نفس الجدول ده.
-
-    الحماية من التكرار (idempotency) بتتم عبر:
-    - UNIQUE ("rootOrderId", medicine_name, "pharmacyId") في
-      medicine_shortage_reports → منع نفس الصيدلية تبلّغ عن نفس
-      الصنف مرتين في نفس السلسلة.
-    - UNIQUE ("rootOrderId", medicine_name) في medicine_shortage_alerts
-      → ضمان إن رسالة الواتساب للعميل تتبعت مرة واحدة بس عند
-      الوصول لعتبة الـ SHORTAGE_THRESHOLD، حتى لو أكتر من صيدلية
-      وصلوا للعتبة في نفس اللحظة (كله جوه transaction واحدة مع
-      FOR UPDATE على صف الطلب).
-    ============================================================ */
-router.post("/orders/:id/items/:itemId/unavailable", async (req, res) => {
-    try {
-        const { id, itemId } = req.params;
-        const { pharmacyId, pharmacyName } = req.body;
-
-        if (!pharmacyId || !pharmacyName) {
-            return res.status(400).json({ ok: false, error: "بيانات الصيدلية مطلوبة" });
-        }
-
-        const txResult = await db.withTransaction(async (tx) => {
-            const order = await tx.get(`SELECT * FROM orders WHERE id = $1 FOR UPDATE`, [id]);
-            if (!order) {
-                const e = new Error("الطلب غير موجود");
-                e.httpStatus = 404;
-                throw e;
-            }
-            if (normalizeStatus(order.status) !== "pending") {
-                const e = new Error("لم يعد هذا الطلب متاحًا");
-                e.httpStatus = 409;
-                throw e;
-            }
-            if (!order.rootOrderId) {
-                const e = new Error("هذا الإجراء متاح فقط للأصناف المتبقية من تنفيذ جزئي سابق — استخدم «تنفيذ جزئي» لو كان الطلب جديدًا");
-                e.httpStatus = 400;
-                throw e;
-            }
-
-            const item = await tx.get(
-                `SELECT * FROM order_items WHERE id = $1 AND order_id = $2 FOR UPDATE`,
-                [itemId, id]
-            );
-            if (!item) {
-                const e = new Error("الصنف غير موجود ضمن هذا الطلب");
-                e.httpStatus = 404;
-                throw e;
-            }
-            if (item.availability_status === "market_unavailable") {
-                const e = new Error("تم اعتبار هذا الصنف غير متوفر بالسوق بالفعل");
-                e.httpStatus = 409;
-                throw e;
-            }
-
-            const rootOrderId = order.rootOrderId;
-            const medicineName = item.medicine_name;
-
-            // تسجيل بلاغ الصيدلية — نفس الجدول والقيد المستخدم في partial بالظبط
-            const inserted = await tx.run(
-                `INSERT INTO medicine_shortage_reports ("rootOrderId", medicine_name, "pharmacyId")
-                 VALUES ($1, $2, $3)
-                 ON CONFLICT ("rootOrderId", medicine_name, "pharmacyId") DO NOTHING`,
-                [rootOrderId, medicineName, pharmacyId]
-            );
-            if (inserted.changes === 0) {
-                const e = new Error("سبق أن أبلغت عن عدم توفر هذا الصنف");
-                e.httpStatus = 409;
-                throw e;
-            }
-
-            const countRow = await tx.get(
-                `SELECT COUNT(DISTINCT "pharmacyId")::int as cnt FROM medicine_shortage_reports WHERE "rootOrderId" = $1 AND medicine_name = $2`,
-                [rootOrderId, medicineName]
-            );
-            const distinctCount = countRow ? countRow.cnt : 0;
-            const reachedThreshold = distinctCount >= SHORTAGE_THRESHOLD;
-
-            const updatedItem = await tx.get(
-                `UPDATE order_items
-                 SET unavailable_attempts = $1,
-                     availability_status = $2
-                 WHERE id = $3
-                 RETURNING *`,
-                [distinctCount, reachedThreshold ? "market_unavailable" : "searching", itemId]
-            );
-
-            await tx.run(
-                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
-                [id, `${pharmacyName} أبلغت بعدم توفر "${medicineName}" (${distinctCount}/${SHORTAGE_THRESHOLD})`, "#dc2626"]
-            );
-
-            let alertFired = false;
-            if (reachedThreshold) {
-                const alreadyAlerted = await tx.get(
-                    `SELECT id FROM medicine_shortage_alerts WHERE "rootOrderId" = $1 AND medicine_name = $2`,
-                    [rootOrderId, medicineName]
-                );
-                if (!alreadyAlerted) {
-                    const alertInsert = await tx.run(
-                        `INSERT INTO medicine_shortage_alerts ("rootOrderId", medicine_name) VALUES ($1, $2)
-                         ON CONFLICT ("rootOrderId", medicine_name) DO NOTHING`,
-                        [rootOrderId, medicineName]
-                    );
-                    alertFired = alertInsert.changes > 0;
-                }
-                if (alertFired) {
-                    await tx.run(
-                        `UPDATE order_items SET unavailable_notification_sent = 1 WHERE id = $1`,
-                        [itemId]
-                    );
-                    await tx.run(
-                        `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
-                        [id, `تم إبلاغ العميل بنفاد "${medicineName}" من السوق (اعتذرت عنه ${SHORTAGE_THRESHOLD} صيدليات مختلفة)`, "#dc2626"]
-                    );
-                }
-            }
-
-            // لو كل أصناف الطلب بقت market_unavailable، الطلب ده نفسه مفيش داعي يفضل معلّق
-            // (الأصناف التانية اللي اتنفذت فعلاً في طلبات تانية من نفس السلسلة مش بتتأثر)
-            const remainingItems = await tx.all(
-                `SELECT availability_status FROM order_items WHERE order_id = $1`,
-                [id]
-            );
-            const allUnavailable = remainingItems.length > 0 && remainingItems.every((r) => r.availability_status === "market_unavailable");
-            if (allUnavailable) {
-                await tx.run(`UPDATE orders SET status = 'rejected', "updatedAt" = NOW() WHERE id = $1`, [id]);
-                await tx.run(
-                    `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
-                    [id, `كل أصناف الطلب أصبحت غير متوفرة في السوق`, "#dc2626"]
-                );
-            }
-
-            return { rootOrderId, medicineName, item: updatedItem, distinctCount, reachedThreshold, alertFired, order, allUnavailable };
-        });
-
-        // الإرسال الفعلي للواتساب بعد نجاح الـ transaction، ومرة واحدة بس (alertFired)
-        if (txResult.alertFired) {
-            sendN8nWebhook(N8N_SHORTAGE_WEBHOOK_URL, {
-                type: "medicine_out_of_stock",
-                order_id: id,
-                root_order_id: txResult.rootOrderId,
-                phone: txResult.order.phone,
-                customer_name: txResult.order.customerName,
-                medicine_name: txResult.medicineName,
-            }).then((r) => {
-                if (!r.ok) console.error(`[Shortage Webhook ✗] فشل إبلاغ العميل بنفاد "${txResult.medicineName}" (زر غير متوفر):`, r.error || r.body);
-                else console.log(`[Shortage Webhook ✓] تم إبلاغ العميل بنفاد "${txResult.medicineName}" (عبر زر «الدواء غير متوفر»)`);
-            });
-        }
-
-        res.json({
-            ok: true,
-            item: {
-                id: txResult.item.id,
-                name: txResult.item.medicine_name,
-                unit: txResult.item.unit || "",
-                unavailableAttempts: txResult.item.unavailable_attempts,
-                availabilityStatus: txResult.item.availability_status,
-            },
-            threshold: SHORTAGE_THRESHOLD,
-            reachedThreshold: txResult.reachedThreshold,
-            orderClosed: txResult.allUnavailable,
-        });
-    } catch (err) {
-        const status = err.httpStatus || 500;
-        if (status === 500) {
-            console.error("❌ خطأ في تبليغ عدم توفر الصنف:", err.message);
-            return res.status(500).json({ ok: false, error: "فشل في تنفيذ العملية" });
         }
         res.status(status).json({ ok: false, error: err.message });
     }
