@@ -239,48 +239,49 @@ window.App = window.App || {};
 
   function playBeepTone(ctx) {
     try {
-      /* 🆕 "دينج-دونج" — نغمتين متتاليتين بيرتفعوا لبعض (زي جرس الباب/
-         إشعارات تطبيقات المحادثة)، بصوت جرسي هادي على الودان (باستخدام
-         مزيج sine + triangle بدل sine خام عشان يبقى دافئ مش حاد)، وبيتكرر
-         مرتين عشان يفضل ملفت للانتباه من غير ما يبقى مزعج. */
-      function playChime(startAt, freq) {
-        // الصوت الأساسي (sine) — دافئ وهادي
-        const o1 = ctx.createOscillator();
-        const g1 = ctx.createGain();
-        o1.connect(g1); g1.connect(ctx.destination);
-        o1.type = "sine";
-        o1.frequency.value = freq;
-        g1.gain.setValueAtTime(0.0001, startAt);
-        g1.gain.exponentialRampToValueAtTime(0.22, startAt + 0.04);
-        g1.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.55);
-        o1.start(startAt);
-        o1.stop(startAt + 0.6);
+      /* 🆕 نغمة "فخمة" وهادية على الودان — إحساس جرس دافئ بطبقات هارمونية
+         خفيفة (زي أصوات إشعارات iOS/التطبيقات الاحترافية) بدل النغمة
+         الجرسية المباشرة. المفاتيح هنا:
+         - بداية ناعمة جدًا (attack بطيء نسبيًا) بدل ما يبدأ الصوت فجأة
+         - خفوت طويل وتدريجي (decay ناعم) بدل قطع مفاجئ
+         - علو منخفض (0.1 بدل 0.22/0.4) عشان يبقى مريح مش لافت بعنف
+         - هارمونيك خفيف فوق النغمة الأساسية (مش نغمة تانية منفصلة) عشان
+           يدي إحساس "غنى" في الصوت بدل نغمة sine خام مسطحة */
+      function playChime(startAt, freq, volume = 0.1) {
+        // النغمة الأساسية — دافئة وممتدة
+        const fundamental = ctx.createOscillator();
+        const fundamentalGain = ctx.createGain();
+        fundamental.connect(fundamentalGain);
+        fundamentalGain.connect(ctx.destination);
+        fundamental.type = "sine";
+        fundamental.frequency.value = freq;
+        fundamentalGain.gain.setValueAtTime(0.0001, startAt);
+        fundamentalGain.gain.linearRampToValueAtTime(volume, startAt + 0.09);
+        fundamentalGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 1.1);
+        fundamental.start(startAt);
+        fundamental.stop(startAt + 1.15);
 
-        // نغمة خفيفة فوقها (triangle بصوت أهدى) عشان تدي إحساس "جرس" مش صفارة
-        const o2 = ctx.createOscillator();
-        const g2 = ctx.createGain();
-        o2.connect(g2); g2.connect(ctx.destination);
-        o2.type = "triangle";
-        o2.frequency.value = freq * 2;
-        g2.gain.setValueAtTime(0.0001, startAt);
-        g2.gain.exponentialRampToValueAtTime(0.06, startAt + 0.04);
-        g2.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.4);
-        o2.start(startAt);
-        o2.stop(startAt + 0.45);
+        // هارمونيك خفيف جدًا فوقها (أوكتاف + خمسة) عشان يدي عمق للصوت
+        // من غير ما يبان كنغمة منفصلة — علوه أقل بكتير من الأساسية
+        const overtone = ctx.createOscillator();
+        const overtoneGain = ctx.createGain();
+        overtone.connect(overtoneGain);
+        overtoneGain.connect(ctx.destination);
+        overtone.type = "sine";
+        overtone.frequency.value = freq * 1.5; // خمسة موسيقية فوق الأساسية
+        overtoneGain.gain.setValueAtTime(0.0001, startAt);
+        overtoneGain.gain.linearRampToValueAtTime(volume * 0.25, startAt + 0.09);
+        overtoneGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.8);
+        overtone.start(startAt);
+        overtone.stop(startAt + 0.85);
       }
 
-      const noteLow = 784;    // G5
-      const noteHigh = 1046.5; // C6 — نفس فكرة "دينج-دونج" الكلاسيكية
-      const chimeGap = 0.16;   // الفاصل بين النغمتين جوه نفس الـ "دينج دونج"
-      const repeatGap = 0.85;  // الفاصل بين التكرار الأول والتاني
+      const noteLow = 659.25;  // E5 — نغمة دافئة مش حادة
+      const noteHigh = 987.77; // B5 — خمسة موسيقية فوقها (إحساس "رقي" بدل أوكتاف كامل)
+      const chimeGap = 0.22;   // فاصل هادي بين النغمتين
 
-      // مرة أولى
-      playChime(ctx.currentTime, noteLow);
-      playChime(ctx.currentTime + chimeGap, noteHigh);
-
-      // تكرار خفيف بعدها عشان الانتباه يترسّخ من غير إلحاح
-      playChime(ctx.currentTime + repeatGap, noteLow);
-      playChime(ctx.currentTime + repeatGap + chimeGap, noteHigh);
+      playChime(ctx.currentTime, noteLow, 0.11);
+      playChime(ctx.currentTime + chimeGap, noteHigh, 0.11);
     } catch (e) {
       console.warn("[Audio] تعذر تشغيل نغمة التنبيه:", e);
     }
