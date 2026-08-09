@@ -239,26 +239,48 @@ window.App = window.App || {};
 
   function playBeepTone(ctx) {
     try {
-      /* 🆕 "تين تين تين" — 3 نغمات متطابقة (بدل نغمتين مختلفتين هادئتين)
-         بفاصل 0.28 ثانية بينهم، وصوت أعلى بكتير (0.4 بدل 0.12) */
-      const dingFreq = 1046.5;      // C6 — نغمة واضحة وحادة
-      const dingCount = 3;
-      const dingGap = 0.28;         // الفاصل الزمني بين كل "تين" والتانية
-      const dingDuration = 0.32;    // مدة كل نغمة قبل ما تخفت
+      /* 🆕 "دينج-دونج" — نغمتين متتاليتين بيرتفعوا لبعض (زي جرس الباب/
+         إشعارات تطبيقات المحادثة)، بصوت جرسي هادي على الودان (باستخدام
+         مزيج sine + triangle بدل sine خام عشان يبقى دافئ مش حاد)، وبيتكرر
+         مرتين عشان يفضل ملفت للانتباه من غير ما يبقى مزعج. */
+      function playChime(startAt, freq) {
+        // الصوت الأساسي (sine) — دافئ وهادي
+        const o1 = ctx.createOscillator();
+        const g1 = ctx.createGain();
+        o1.connect(g1); g1.connect(ctx.destination);
+        o1.type = "sine";
+        o1.frequency.value = freq;
+        g1.gain.setValueAtTime(0.0001, startAt);
+        g1.gain.exponentialRampToValueAtTime(0.22, startAt + 0.04);
+        g1.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.55);
+        o1.start(startAt);
+        o1.stop(startAt + 0.6);
 
-      for (let i = 0; i < dingCount; i++) {
-        const startAt = ctx.currentTime + i * dingGap;
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.connect(g); g.connect(ctx.destination);
-        o.type = "sine";
-        o.frequency.value = dingFreq;
-        g.gain.setValueAtTime(0.0001, startAt);
-        g.gain.exponentialRampToValueAtTime(0.4, startAt + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001, startAt + dingDuration);
-        o.start(startAt);
-        o.stop(startAt + dingDuration + 0.05);
+        // نغمة خفيفة فوقها (triangle بصوت أهدى) عشان تدي إحساس "جرس" مش صفارة
+        const o2 = ctx.createOscillator();
+        const g2 = ctx.createGain();
+        o2.connect(g2); g2.connect(ctx.destination);
+        o2.type = "triangle";
+        o2.frequency.value = freq * 2;
+        g2.gain.setValueAtTime(0.0001, startAt);
+        g2.gain.exponentialRampToValueAtTime(0.06, startAt + 0.04);
+        g2.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.4);
+        o2.start(startAt);
+        o2.stop(startAt + 0.45);
       }
+
+      const noteLow = 784;    // G5
+      const noteHigh = 1046.5; // C6 — نفس فكرة "دينج-دونج" الكلاسيكية
+      const chimeGap = 0.16;   // الفاصل بين النغمتين جوه نفس الـ "دينج دونج"
+      const repeatGap = 0.85;  // الفاصل بين التكرار الأول والتاني
+
+      // مرة أولى
+      playChime(ctx.currentTime, noteLow);
+      playChime(ctx.currentTime + chimeGap, noteHigh);
+
+      // تكرار خفيف بعدها عشان الانتباه يترسّخ من غير إلحاح
+      playChime(ctx.currentTime + repeatGap, noteLow);
+      playChime(ctx.currentTime + repeatGap + chimeGap, noteHigh);
     } catch (e) {
       console.warn("[Audio] تعذر تشغيل نغمة التنبيه:", e);
     }
