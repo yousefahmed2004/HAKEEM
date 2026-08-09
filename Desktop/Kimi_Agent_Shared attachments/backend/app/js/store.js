@@ -248,7 +248,16 @@ window.App = window.App || {};
      بالظبط (تجهيز → جاهز → خرج للتوصيل → تسليم) — عشان كده
      updateOrderWorkflowStatus تحت بقت بتقبل status = "partial" بالظبط
      زي "accepted"/"closed"، وكمان canManageWorkflow / canShowPhone في
-     pages1.js بقوا يشملوا "partial" كمان. */
+     pages1.js بقوا يشملوا "partial" كمان.
+
+     ملاحظة 🆕🆕🆕 (الإبلاغ عن عدم توفر السوق للطلبات الفرعية): البوتن
+     الرابع "غير متوفر في السوق" بيظهر بس على الطلبات اللي عندها
+     parentOrderId (يعني ناتجة عن تقسيم طلب أثناء تنفيذ جزئي سابق) —
+     مش على الطلبات الأصلية الكاملة. كل ضغطة عليه = اعتذار عادي (تختفي
+     من الصيدلية دي) + تسجيل نقص لكل صنف في الطلب في الباك إند
+     (POST /orders/:id/unavailable)، وده بيستخدم نفس جدول
+     medicine_shortage_reports ونفس آلية التنبيه (5 صيدليات مختلفة)
+     المستخدمة في partial بالظبط — فمفيش أي تغيير مطلوب في n8n. */
 
   async function syncOrders() {
     try {
@@ -690,6 +699,40 @@ window.App = window.App || {};
         return result;
       } catch (e) {
         console.error("فشل تنفيذ الطلب جزئيًا:", e);
+        return null;
+      }
+    },
+
+    /* ============================================================
+       🆕 reportUnavailableInMarket — الإبلاغ عن عدم توفر طلب "فرعي"
+       (ناتج عن تنفيذ جزئي سابق) في السوق
+       ------------------------------------------------------------
+       متاحة فقط للطلبات اللي عندها parentOrderId (يعني هي أصلاً
+       أصناف ناقصة أُعيد طرحها بعد تنفيذ جزئي سابق) — الفحص النهائي
+       بيحصل في الباك إند، وده هنا بس تحقق سريع محلي لتجربة استخدام
+       أفضل. الباك إند هو اللي بيسجّل بلاغ النقص لكل صنف في الطلب
+       (نفس جدول medicine_shortage_reports المستخدم في partial)،
+       ولو وصل عدد الصيدليات المبلّغة عن نفس الصنف عبر نفس السلسلة
+       (rootOrderId) لـ 5، بيتبعت تلقائيًا نفس webhook تنبيه النقص
+       للعميل (N8N_SHORTAGE_WEBHOOK_URL) — بدون أي تدخل يدوي.
+       بترجع { ok, shortageAlerts } أو null لو فشلت العملية.
+       ============================================================ */
+    async reportUnavailableInMarket(id, user) {
+      const o = this.getOrder(id);
+      if (!o || o.status !== "pending" || !o.parentOrderId) return null;
+      if (o.rejectedBy && o.rejectedBy.includes(user.id)) return null;
+
+      try {
+        const result = await App.api.reportUnavailableInMarket(id, {
+          pharmacyId: user.id,
+          pharmacyName: user.pharmacyName,
+        });
+        if (!result || !result.ok) return null;
+
+        await syncOrders();
+        return result;
+      } catch (e) {
+        console.error("فشل الإبلاغ عن عدم توفر الطلب في السوق:", e);
         return null;
       }
     },
