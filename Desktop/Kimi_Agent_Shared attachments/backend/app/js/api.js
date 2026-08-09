@@ -158,6 +158,16 @@ window.App = window.App || {};
             });
         },
 
+        /* ---------- 🆕 الإبلاغ عن عدم توفر طلب "فرعي" (ناتج عن تنفيذ جزئي) في السوق ----------
+           payload = { pharmacyId, pharmacyName }
+           الرد: { ok, shortageAlerts } — متاح فقط للطلبات اللي عندها parentOrderId */
+        async reportUnavailableInMarket(id, payload) {
+            return apiRequest(`/orders/${id}/unavailable`, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
+        },
+
         async getOrderShortages(id) {
             return apiRequest(`/orders/${id}/shortages`);
         },
