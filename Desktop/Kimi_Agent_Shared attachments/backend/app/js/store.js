@@ -257,7 +257,21 @@ window.App = window.App || {};
      من الصيدلية دي) + تسجيل نقص لكل صنف في الطلب في الباك إند
      (POST /orders/:id/unavailable)، وده بيستخدم نفس جدول
      medicine_shortage_reports ونفس آلية التنبيه (5 صيدليات مختلفة)
-     المستخدمة في partial بالظبط — فمفيش أي تغيير مطلوب في n8n. */
+     المستخدمة في partial بالظبط — فمفيش أي تغيير مطلوب في n8n.
+
+     ملاحظة 🆕🆕🆕🆕 (حجب زرار "خرج للتوصيل" لحد ما السلسلة تتحسم):
+     chainShippingStatus() تحت بتتحقق — بيانيًا من الكاش المحلي
+     (db.orders، المتزامن كل 6 ثواني) — هل فيه طرف تاني من نفس سلسلة
+     التنفيذ الجزئي (rootOrderId) لسه:
+       - "pending" (مفيش صيدلية اتعينت له لسه)، أو
+       - عنده صيدلية بتشتغل عليه (accepted/partial/closed) بس لسه
+         ما وصلش لـ "خرج للتوصيل"/"تسليم"،
+     ولو أي حالة منهم موجودة، بترجع { blocked: true, ... } عشان
+     الفرونت إند (pages1.js) يعطّل زرار "خرج للتوصيل" ويوضح السبب،
+     ومحدش يقدر يقفل طلبه أصلاً قبل ما باقي السلسلة تتحسم أو تتقفل
+     نهائيًا بعدم توفر السوق (market_unavailable) — وده بيتأكد منه
+     برضو على مستوى السيرفر (orders.js -> computeChainShippingBlock)
+     كحماية إضافية. */
 
   async function syncOrders() {
     try {
@@ -782,6 +796,50 @@ window.App = window.App || {};
     },
 
     /* ============================================================
+       🆕 chainShippingStatus(o) — بيتحقق هل الطلب ده (لو جزء من سلسلة
+       تنفيذ جزئي) جاهز فعليًا لخطوة "خرج للتوصيل" ولا لسه في انتظار
+       طرف تاني من نفس السلسلة (rootOrderId) يتحسم.
+       ------------------------------------------------------------
+       بتحسب الحالة بالكامل محليًا من db.orders (المتزامن كل 6 ثواني
+       مع الباك إند)، من غير أي نداء API إضافي:
+
+       - لو مفيش أي "طرف" تاني في نفس السلسلة (o مش ناتج/سبب تنفيذ
+         جزئي أصلاً) → { blocked: false } يمشي عادي.
+
+       - لو فيه طرف تاني لسه "pending" (الأصناف الناقصة لسه معلقة
+         مستنية أي صيدلية تقرر بشأنها) → { blocked: true, reason: "pending" }.
+
+       - لو فيه طرف تاني اتقبل/اتنفذ جزئيًا (عنده صيدلية) بس لسه
+         ماوصلش لـ "خرج للتوصيل"/"تسليم" → { blocked: true,
+         reason: "other", pharmacyName }.
+
+       - غير كده (كل الأطراف التانية اتحسمت: وصلت لخرج للتوصيل/
+         تسليم، أو اترفضت، أو اتقفلت نهائيًا بـ market_unavailable)
+         → { blocked: false }.
+
+       ملاحظة: الطلبات "market_unavailable" مستبعدة أصلاً من GET
+       /orders (الباك إند بيستبعدها)، فبمجرد ما طرف يتقفل بيها
+       هيختفي تلقائيًا من db.orders بعد أول مزامنة تالية، وبالتالي
+       مش هيفضل يحجز أي حاجة هنا — بالظبط زي الحالة المطلوبة (أول
+       حالة: الأوردر اتقفل من 5 صيدليات → الزرار يشتغل).
+       ============================================================ */
+    chainShippingStatus(o) {
+      if (!o) return { blocked: false };
+      const rootId = o.rootOrderId || o.id;
+      const others = db.orders.filter((x) => x.id !== o.id && (x.id === rootId || x.rootOrderId === rootId));
+      if (!others.length) return { blocked: false };
+
+      const stillPending = others.find((x) => x.status === "pending");
+      if (stillPending) return { blocked: true, reason: "pending" };
+
+      const activeLeg = others.find((x) => x.pharmacyId && ["accepted", "partial", "closed"].includes(x.status)
+        && !["out_for_delivery", "delivered"].includes(x.workflowStatus));
+      if (activeLeg) return { blocked: true, reason: "other", pharmacyName: activeLeg.pharmacyName };
+
+      return { blocked: false };
+    },
+
+    /* ============================================================
        تحديث حالة سير عمل الطلب (استلام / تجهيز / جاهز / خرج للتوصيل / تسليم / إلغاء)
        — يستقبل price اختياريًا (بيوصل من نافذة تأكيد الشحن) ويحفظه على الطلب
        — ⚠️ أهم نقطة: بيصفّر executionPending/executionDeadline فورًا مع أي
@@ -805,6 +863,12 @@ window.App = window.App || {};
          التايملاين، عشان الدالة دي كانت بترفض أي طلب مش accepted/closed.
          دلوقتي الطلب الجزئي بيتصرف بالظبط زي الطلب العادي المقبول
          بالكامل من هنا لحد ما يتسلّم.
+       — 🆕🆕 (حجب "خرج للتوصيل" لحد ما السلسلة تتحسم) قبل تنفيذ خطوة
+         "خرج للتوصيل" بالذات، بنتأكد عبر chainShippingStatus() إن مفيش
+         طرف تاني من نفس سلسلة التنفيذ الجزئي لسه معلّق أو بيتحرك —
+         لو فيه، منعملش أي تحديث محلي أو نداء للباك إند خالص، وبنرجّع
+         { blocked: true, reason, pharmacyName } عشان الواجهة (pages1.js)
+         تعرض رسالة واضحة للصيدلي بدل ما تسيبه يقفل طلبه في الهوا.
        — عند "خرج للتوصيل" يتم أيضًا إرسال إشعار الشحن إلى n8n عبر البروكسي
          (ده لسه محتاجينه بس عشان يوصل السعر والعنوان لشركة الشحن، مش
          عشان يقفل السيشن — القفل بقى مسؤولية الباك إند وحده)
@@ -821,6 +885,13 @@ window.App = window.App || {};
         cancelled: "إلغاء الطلب",
       };
       if (!workflowLabels[workflowStatus]) return null;
+
+      if (workflowStatus === "out_for_delivery") {
+        const chainStatus = this.chainShippingStatus(o);
+        if (chainStatus.blocked) {
+          return { blocked: true, reason: chainStatus.reason, pharmacyName: chainStatus.pharmacyName };
+        }
+      }
 
       if (price != null && Number.isFinite(Number(price))) {
         o.price = Number(price);
