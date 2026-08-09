@@ -191,7 +191,7 @@ window.App = window.App || {};
       </div>`;
   }
 
-  /* ---------- صوت تنبيه خفيف (Web Audio) ----------
+  /* ---------- صوت تنبيه (Web Audio) ----------
      ⚠️ إصلاح مشكلة "الصوت مش بيوصل": المتصفحات (Chrome خصوصًا) بتخلي أي
      AudioContext جديد يبدأ في حالة "suspended" لحد ما يحصل تفاعل مباشر
      من المستخدم (click/tap/keydown) معاه. زرار "محاكاة طلب" كان شغال لأنه
@@ -206,7 +206,11 @@ window.App = window.App || {};
      4) بنطبع تحذير حقيقي في الكونسول بدل ما نبلع الخطأ بصمت — لو شفت
         رسالة "[Audio] المتصفح مانع تشغيل الصوت تلقائيًا" في الكونسول،
         يبقى المطلوب إنك تعمل أي كليك واحد في الصفحة (زي فتح أي قايمة أو
-        الضغط في أي مكان فاضي) وبعدها الصوت هيشتغل عادي لباقي الجلسة. */
+        الضغط في أي مكان فاضي) وبعدها الصوت هيشتغل عادي لباقي الجلسة.
+
+     🆕 (تعديل) شكل الصوت اتغيّر من نغمتين هادئتين لـ 3 نغمات "تين تين تين"
+     متطابقة وأعلى صوتًا بكتير (gain من 0.12 لـ 0.4) عشان يبقى واضح ومسموع
+     حتى لو الصفحة مش في الفوكس. */
   let sharedAudioCtx = null;
 
   function getAudioCtx() {
@@ -235,18 +239,26 @@ window.App = window.App || {};
 
   function playBeepTone(ctx) {
     try {
-      const notes = [880, 1174.66];
-      notes.forEach((freq, i) => {
+      /* 🆕 "تين تين تين" — 3 نغمات متطابقة (بدل نغمتين مختلفتين هادئتين)
+         بفاصل 0.28 ثانية بينهم، وصوت أعلى بكتير (0.4 بدل 0.12) */
+      const dingFreq = 1046.5;      // C6 — نغمة واضحة وحادة
+      const dingCount = 3;
+      const dingGap = 0.28;         // الفاصل الزمني بين كل "تين" والتانية
+      const dingDuration = 0.32;    // مدة كل نغمة قبل ما تخفت
+
+      for (let i = 0; i < dingCount; i++) {
+        const startAt = ctx.currentTime + i * dingGap;
         const o = ctx.createOscillator();
         const g = ctx.createGain();
         o.connect(g); g.connect(ctx.destination);
-        o.type = "sine"; o.frequency.value = freq;
-        g.gain.setValueAtTime(0.0001, ctx.currentTime + i * 0.12);
-        g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + i * 0.12 + 0.03);
-        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.12 + 0.35);
-        o.start(ctx.currentTime + i * 0.12);
-        o.stop(ctx.currentTime + i * 0.12 + 0.4);
-      });
+        o.type = "sine";
+        o.frequency.value = dingFreq;
+        g.gain.setValueAtTime(0.0001, startAt);
+        g.gain.exponentialRampToValueAtTime(0.4, startAt + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, startAt + dingDuration);
+        o.start(startAt);
+        o.stop(startAt + dingDuration + 0.05);
+      }
     } catch (e) {
       console.warn("[Audio] تعذر تشغيل نغمة التنبيه:", e);
     }
