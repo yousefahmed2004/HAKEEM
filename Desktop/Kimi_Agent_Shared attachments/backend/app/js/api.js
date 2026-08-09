@@ -148,65 +148,14 @@ window.App = window.App || {};
             );
         },
 
-        /* ---------- التنفيذ الجزئي (Partial Fulfillment + Order Splitting) ----------
-           payload = {
-               pharmacyId,
-               pharmacyName,
-               availableItems,
-               unavailableItems,
-               price,
-               notes
-           }
-
-           الرد:
-           {
-               ok,
-               orderId,
-               childOrderId,
-               shortageAlerts
-           }
-        */
+        /* ---------- 🆕 التنفيذ الجزئي (Partial Fulfillment + Order Splitting) ----------
+           payload = { pharmacyId, pharmacyName, availableItems, unavailableItems, price, notes }
+           الرد: { ok, orderId, childOrderId, shortageAlerts } */
         async partialOrder(id, payload) {
             return apiRequest(`/orders/${id}/partial`, {
                 method: "POST",
                 body: JSON.stringify(payload)
             });
-        },
-
-        /* ---------- "الدواء غير متوفر" ----------
-           تبليغ عن عدم توفر صنف محدد.
-
-           بيُستخدم فقط على طلبات الكمية المتبقية
-           (rootOrderId موجود).
-
-           إجراء منفصل تمامًا عن:
-           partialOrder / rejectOrder
-
-           السيرفر بيسجّل البلاغ في نفس جدول:
-           medicine_shortage_reports
-
-           payload = {
-               pharmacyId,
-               pharmacyName
-           }
-
-           الرد:
-           {
-               ok,
-               item,
-               threshold,
-               reachedThreshold,
-               orderClosed
-           }
-        */
-        async markItemUnavailable(orderId, itemId, payload) {
-            return apiRequest(
-                `/orders/${orderId}/items/${itemId}/unavailable`,
-                {
-                    method: "POST",
-                    body: JSON.stringify(payload)
-                }
-            );
         },
 
         async getOrderShortages(id) {
