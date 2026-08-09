@@ -23,7 +23,7 @@ router.post("/login", async (req, res) => {
         }
 
         if (user.status === "suspended") {
-            return res.status(403).json({ ok: false, error: "هذا الحساب موقوف" });
+            return res.status(403).json({ ok: false, error: "🚫 تم إيقاف حسابك مؤقتًا عن العمل مع مجموعة حكيم — برجاء التواصل مع الإدارة لمزيد من التفاصيل", suspended: true });
         }
 
         delete user.password;
