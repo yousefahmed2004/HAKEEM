@@ -854,6 +854,143 @@ router.post("/orders/:id/partial", async (req, res) => {
 });
 
 /* ============================================================
+    🆕 الإبلاغ عن عدم توفر طلب "فرعي" (ناتج عن تنفيذ جزئي سابق) في السوق
+    ------------------------------------------------------------
+    البوتن الرابع في تفاصيل الطلب — بيظهر بس على الطلبات اللي عندها
+    parentOrderId (أصناف ناقصة أُعيد طرحها بعد تنفيذ جزئي سابق).
+    كل نداء هنا = اعتذار عادي (يضيف الصيدلية لـ rejectedBy فتختفي
+    الطلب من عندها) + تسجيل بلاغ نقص لكل صنف في الطلب في نفس جدول
+    medicine_shortage_reports المستخدم في /orders/:id/partial، مربوط
+    بـ rootOrderId. لو عدد الصيدليات المختلفة اللي بلّغت عن نفس الصنف
+    عبر نفس السلسلة وصل لـ SHORTAGE_THRESHOLD (5 افتراضيًا)، يتبعت
+    تلقائيًا نفس webhook تنبيه النقص المستخدم في partial بالظبط —
+    فمفيش أي تعديل مطلوب في n8n، نفس الـ workflow هيستقبل نفس الشكل.
+    ============================================================ */
+router.post("/orders/:id/unavailable", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { pharmacyId, pharmacyName } = req.body;
+
+        if (!pharmacyId || !pharmacyName) {
+            return res.status(400).json({ ok: false, error: "بيانات الصيدلية مطلوبة" });
+        }
+
+        const txResult = await db.withTransaction(async (tx) => {
+            const order = await tx.get(`SELECT * FROM orders WHERE id = $1 FOR UPDATE`, [id]);
+            if (!order) {
+                const e = new Error("الطلب غير موجود");
+                e.httpStatus = 404;
+                throw e;
+            }
+            if (normalizeStatus(order.status) !== "pending") {
+                const e = new Error("لم يعد هذا الطلب متاحًا");
+                e.httpStatus = 409;
+                throw e;
+            }
+            if (!order.parentOrderId) {
+                const e = new Error("هذا الإجراء متاح فقط للطلبات الناتجة عن تنفيذ جزئي");
+                e.httpStatus = 400;
+                throw e;
+            }
+
+            let rejectedBy = order.rejectedBy
+                ? (typeof order.rejectedBy === "string" ? JSON.parse(order.rejectedBy) : order.rejectedBy)
+                : [];
+            if (rejectedBy.includes(pharmacyId)) {
+                const e = new Error("سبق أن أبلغت عن هذا الطلب");
+                e.httpStatus = 409;
+                throw e;
+            }
+            rejectedBy.push(pharmacyId);
+
+            const rootOrderId = order.rootOrderId || order.id;
+            const items = resolveItems({ items: order.items, rawItems: order.items });
+            const shortageNow = [];
+
+            for (const item of items) {
+                const name = item.name;
+                if (!name) continue;
+
+                await tx.run(
+                    `INSERT INTO medicine_shortage_reports ("rootOrderId", medicine_name, "pharmacyId")
+                     VALUES ($1, $2, $3)
+                     ON CONFLICT ("rootOrderId", medicine_name, "pharmacyId") DO NOTHING`,
+                    [rootOrderId, name, pharmacyId]
+                );
+
+                const countRow = await tx.get(
+                    `SELECT COUNT(DISTINCT "pharmacyId")::int as cnt FROM medicine_shortage_reports WHERE "rootOrderId" = $1 AND medicine_name = $2`,
+                    [rootOrderId, name]
+                );
+                const distinctCount = countRow ? countRow.cnt : 0;
+
+                const alreadyAlerted = await tx.get(
+                    `SELECT id FROM medicine_shortage_alerts WHERE "rootOrderId" = $1 AND medicine_name = $2`,
+                    [rootOrderId, name]
+                );
+
+                if (distinctCount >= SHORTAGE_THRESHOLD && !alreadyAlerted) {
+                    await tx.run(
+                        `INSERT INTO medicine_shortage_alerts ("rootOrderId", medicine_name) VALUES ($1, $2)
+                         ON CONFLICT ("rootOrderId", "medicine_name") DO NOTHING`,
+                        [rootOrderId, name]
+                    );
+                    shortageNow.push(name);
+                }
+            }
+
+            const activePharmacists = await tx.all(
+                `SELECT id FROM users WHERE role = 'pharmacist' AND status = 'active'`
+            );
+            const allRejected = activePharmacists.every((p) => rejectedBy.includes(p.id));
+            const newStatus = allRejected ? "rejected" : "pending";
+
+            await tx.run(
+                `UPDATE orders SET "rejectedBy" = $1::jsonb, status = $2, "updatedAt" = NOW() WHERE id = $3`,
+                [JSON.stringify(rejectedBy), newStatus, id]
+            );
+
+            await tx.run(
+                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [id, `أبلغت ${pharmacyName} عن عدم توفر الطلب في السوق`, "#dc2626"]
+            );
+
+            if (allRejected) {
+                await tx.run(
+                    `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                    [id, "لم يتمكن أي صيدلي من التنفيذ", "#ef4444"]
+                );
+            }
+
+            return { order, rootOrderId, shortageNow };
+        });
+
+        for (const name of txResult.shortageNow) {
+            sendN8nWebhook(N8N_SHORTAGE_WEBHOOK_URL, {
+                type: "medicine_out_of_stock",
+                order_id: id,
+                root_order_id: txResult.rootOrderId,
+                phone: txResult.order.phone,
+                customer_name: txResult.order.customerName,
+                medicine_name: name,
+            }).then((r) => {
+                if (!r.ok) console.error(`[Shortage Webhook ✗] فشل إبلاغ العميل بنفاد "${name}":`, r.error || r.body);
+                else console.log(`[Shortage Webhook ✓] تم إبلاغ العميل بنفاد "${name}"`);
+            });
+        }
+
+        res.json({ ok: true, shortageAlerts: txResult.shortageNow });
+    } catch (err) {
+        const status = err.httpStatus || 500;
+        if (status === 500) {
+            console.error("❌ خطأ في الإبلاغ عن عدم توفر السوق:", err.message);
+            return res.status(500).json({ ok: false, error: "فشل في تنفيذ العملية" });
+        }
+        res.status(status).json({ ok: false, error: err.message });
+    }
+});
+
+/* ============================================================
     رفض الطلب (صيدلي)
     ============================================================ */
 router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
