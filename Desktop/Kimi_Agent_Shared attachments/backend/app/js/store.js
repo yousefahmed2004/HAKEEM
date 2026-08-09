@@ -439,7 +439,7 @@ window.App = window.App || {};
     login(username, password) {
       const u = db.users.find((x) => x.username.toLowerCase() === String(username).trim().toLowerCase());
       if (!u || u.password !== password) return { ok: false, error: "بيانات الدخول غير صحيحة، حاول مرة أخرى" };
-      if (u.status === "suspended") return { ok: false, error: "هذا الحساب موقوف، برجاء التواصل مع الإدارة" };
+      if (u.status === "suspended") return { ok: false, error: "🚫 تم إيقاف حسابك مؤقتًا عن العمل مع مجموعة حكيم — برجاء التواصل مع الإدارة لمزيد من التفاصيل", suspended: true };
       sessionStorage.setItem(SESSION_KEY, u.id);
       return { ok: true, user: u };
     },
