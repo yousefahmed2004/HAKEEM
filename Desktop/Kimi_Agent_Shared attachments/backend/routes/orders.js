@@ -346,11 +346,17 @@ async function buildUnavailableMessage(rootOrderId, itemLabels) {
     🆕 trySendCombinedShippingWebhook — رسالة شحن واحدة موحّدة
     ------------------------------------------------------------
     بتُستدعى في كل مرة أي طرف من سلسلة الطلب يوصل لحالة
-    "خرج للتوصيل". الدالة بتتحقق:
+    "خرج للتوصيل"، وكمان (🆕) لحظة ما آخر طرف "pending" في السلسلة
+    يتقفل بحالة "market_unavailable" — عشان لو صيدلية سبق ودوست
+    "خرج للتوصيل" واستنت باقي السلسلة، الشحن ينطلق فورًا لحظة
+    ما آخر طرف معلّق يتحسم، بدل ما يفضل عالق للأبد.
+
+    الدالة بتتحقق:
 
     1) هل لسه فيه طرف من السلسلة "pending" (صيدلية تالتة لسه
        ماخدتش قرار، أو الطلب الأصلي لسه معلّق)؟ → لو أه، منستنى
        ومنبعتش حاجة لسه.
+       (ملاحظة: "market_unavailable" مش "pending"، فمش بتوقف الشحن)
 
     2) هل كل الأطراف اللي فعلاً اتنفذت (accepted/partial/closed
        وعندها pharmacyId) وصلت لـ "خرج للتوصيل" (أو بعدها)؟
@@ -360,18 +366,15 @@ async function buildUnavailableMessage(rootOrderId, itemLabels) {
     3) لو الشرطين اتحققوا: نحجز الإرسال عبر INSERT في
        shipping_notifications (محمي بـ UNIQUE على rootOrderId)،
        فلو حد تاني (نفس اللحظة بالضبط من طرف تاني) حاول يبعت في
-       نفس الوقت، واحد بس ينجح يحجز ويبعت.
+       نفس الوقت، واحد بس ينجح يحجز ويبعت. وده كمان اللي بيمنع
+       تكرار الإرسال لو الدالة اتنادت مرتين (مرة من PUT /orders/:id
+       ومرة من إغلاق الطلب الفرعي).
 
     4) نجمع بيانات كل صيدلية (اسمها/عنوانها/تليفونها/المبلغ
        المطلوب تحصيله منها/الأدوية المتوفرة عندها) ونبعتهم في
        "pickups" جوه رسالة واحدة، والـ order_id فيها بيكون ثابت
        = rootOrderId (نفس رقم الأوردر الأصلي اللي شافه العميل)
        بغض النظر عن عدد الصيدليات.
-
-    ملاحظة 🆕: طلب "فرعي" اتقفل بحالة market_unavailable ملوش
-    workflowStatus خالص، فمش هيدخل في legs (لأن status بتاعه مش
-    ضمن accepted/partial/closed) — يعني السلسلة هتكمل شحن باقي
-    الأطراف عادي من غير ما تستنى الطلب المقفول ده أبدًا.
 
     بترجع { sent: bool, waiting: bool } للـ logging بس.
     ============================================================ */
@@ -387,7 +390,9 @@ async function trySendCombinedShippingWebhook(rootOrderId) {
     );
 
     // أي طرف لسه معلّق (صيدلية تالتة لسه ماخدتش قرار) — لازم نستنى
-    // (طلب market_unavailable مش "pending" فمش بيتحسب هنا، وده مقصود)
+    // (طلب market_unavailable مش "pending" فمش بيتحسب هنا، وده مقصود:
+    //  بمجرد ما آخر طرف معلّق يتقفل بـ market_unavailable أو rejected،
+    //  السلسلة بقت "محسومة" من ناحية الانتظار)
     const unresolved = chain.filter((o) => normalizeStatus(o.status) === "pending");
 
     if (!legs.length || unresolved.length > 0) {
@@ -918,18 +923,31 @@ router.post("/orders/:id/partial", async (req, res) => {
     البوتن الرابع في تفاصيل الطلب — بيظهر بس على الطلبات اللي عندها
     parentOrderId (أصناف ناقصة أُعيد طرحها بعد تنفيذ جزئي سابق).
 
-    🆕🆕 (التعديل المطلوب): الحساب هنا بقى على مستوى "الطلب نفسه" —
-    مش على مستوى كل صنف لوحده زي /partial. يعني بمجرد ما
-    SHORTAGE_THRESHOLD (5 افتراضيًا) صيدليات مختلفة يضغطوا البوتن ده
-    على نفس الطلب، الطلب ده بيتقفل نهائيًا بحالة جديدة
-    "market_unavailable" (بغض النظر عن إجمالي عدد الصيادلة النشطين)،
-    ويختفي فورًا من كل القوائم (GET /orders بيستبعدها افتراضيًا)،
-    ويتبعت webhook واحد للعميل فيه رسالة جاهزة تقول إن الأصناف دي مش
-    متوفرة وباقي الطلب (لو فيه تقدم في أي طرف تاني من السلسلة) في الطريق.
+    الحساب هنا على مستوى "الطلب نفسه" — مش على مستوى كل صنف لوحده
+    زي /partial. يعني بمجرد ما SHORTAGE_THRESHOLD (5 افتراضيًا)
+    صيدليات مختلفة يضغطوا البوتن ده على نفس الطلب، الطلب ده بيتقفل
+    نهائيًا بحالة جديدة "market_unavailable" (بغض النظر عن إجمالي
+    عدد الصيادلة النشطين)، ويختفي فورًا من كل القوائم (GET /orders
+    بيستبعدها افتراضيًا)، ويتبعت webhook واحد للعميل فيه رسالة
+    جاهزة تقول إن الأصناف دي مش متوفرة وباقي الطلب (لو فيه تقدم في
+    أي طرف تاني من السلسلة) في الطريق.
 
     لو عدد الصيادلة النشطين أقل من SHORTAGE_THRESHOLD والكل اعتذر
     قبل ما يوصل العدد للعتبة، الطلب بيتحول لـ "rejected" العادي
     (بيفضل ظاهر في تبويب "المرفوضة") بدل ما يفضل عالق pending للأبد.
+
+    🆕 (إصلاح الشحن المعلّق): لما الطلب الفرعي ده يوصل لـ
+    "market_unavailable"، ده معناه إن آخر أصناف ناقصة من السلسلة
+    خلاص اتحسمت (مفيش صيدلية هتقدر تنفذها). لو ده كان آخر طرف
+    "pending" في السلسلة (مفيش طرف تاني لسه معلّق)، فده يعني إن
+    باقي أطراف السلسلة (اللي فعلاً نفّذوا زي الصيدلية الأولانية
+    اللي عملت التنفيذ الجزئي) بقوا أحرار يبعتوا الطلب لشركة الشحن
+    من غير ما يستنوا حاجة تانية. عشان كده:
+    1) بنسجّل سطر تايملاين واضح لكل صيدلية من دول تقولها إنها تقدر
+       تبعت الطلب لشركة الشحن دلوقتي.
+    2) بننادي trySendCombinedShippingWebhook تاني على نفس السلسلة —
+       فلو كانت صيدلية زي دي خلاص دوست "خرج للتوصيل" واستنت، الشحن
+       هيتبعت فورًا (والدالة نفسها race-safe وما بتكررش الإرسال).
     ============================================================ */
 router.post("/orders/:id/unavailable", async (req, res) => {
     try {
@@ -1006,11 +1024,45 @@ router.post("/orders/:id/unavailable", async (req, res) => {
                 [id, `أبلغت ${pharmacyName} عن عدم توفر الطلب في السوق (${rejectedBy.length}/${SHORTAGE_THRESHOLD})`, "#dc2626"]
             );
 
+            // 🆕 أطراف السلسلة اللي هتتفتح لها إمكانية الشحن فورًا (لو ده كان
+            // آخر طرف معلّق في السلسلة) — بنحسبها هنا جوه نفس الـ transaction
+            // عشان تبقى متسقة مع حالة الطلبات وقت القفل بالظبط
+            let unblockedLegIds = [];
+            let shouldRetryShipping = false;
+
             if (reachedThreshold) {
                 await tx.run(
                     `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
                     [id, `تم إغلاق الطلب نهائيًا — اعتذرت ${SHORTAGE_THRESHOLD} صيدليات مختلفة عن توفره، وتم إبلاغ العميل`, "#dc2626"]
                 );
+
+                // هل لسه فيه أي طرف تاني "pending" في نفس السلسلة؟
+                const chainAfter = await tx.all(
+                    `SELECT * FROM orders WHERE id = $1 OR "rootOrderId" = $1`,
+                    [rootOrderId]
+                );
+                const stillUnresolved = chainAfter.some(
+                    (o) => String(o.id) !== String(id) && normalizeStatus(o.status) === "pending"
+                );
+
+                if (!stillUnresolved) {
+                    shouldRetryShipping = true;
+                    // الأطراف اللي فعلاً نفّذت (عندها صيدلية) ولسه ما خرجتش
+                    // للتوصيل — دول اللي محتاجين يعرفوا إنهم بقوا أحرار يشحنوا
+                    const legsToNotify = chainAfter.filter((o) =>
+                        String(o.id) !== String(id) &&
+                        o.pharmacyId &&
+                        ["accepted", "partial", "closed"].includes(normalizeStatus(o.status)) &&
+                        !["out_for_delivery", "delivered", "cancelled"].includes(o.workflowStatus)
+                    );
+                    for (const leg of legsToNotify) {
+                        unblockedLegIds.push(leg.id);
+                        await tx.run(
+                            `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                            [leg.id, "تعذّر توفير باقي أصناف الطلب من أي صيدلية أخرى في السوق — يمكنك الآن إرسال الطلب لشركة الشحن مباشرة", "#0ea5e9"]
+                        );
+                    }
+                }
             } else if (newStatus === "rejected") {
                 await tx.run(
                     `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
@@ -1018,7 +1070,11 @@ router.post("/orders/:id/unavailable", async (req, res) => {
                 );
             }
 
-            return { order, rootOrderId, items, reachedThreshold, rejectedCount: rejectedBy.length };
+            return {
+                order, rootOrderId, items, reachedThreshold,
+                rejectedCount: rejectedBy.length,
+                unblockedLegIds, shouldRetryShipping,
+            };
         });
 
         let itemLabels = [];
@@ -1040,12 +1096,24 @@ router.post("/orders/:id/unavailable", async (req, res) => {
             });
         }
 
+        // 🆕 لو ده كان آخر طرف معلّق في السلسلة، نحاول نبعت رسالة الشحن
+        // الموحّدة فورًا — لو صيدلية زي الصيدلية الأولانية كانت خلاص
+        // دوست "خرج للتوصيل" واستنت باقي السلسلة، الشحن هيتبعت دلوقتي
+        // من غير ما تحتاج تعمل أي حاجة تانية (والدالة race-safe فمش
+        // هتتكرر لو كانت اتبعتت قبل كده لأي سبب)
+        if (txResult.shouldRetryShipping) {
+            trySendCombinedShippingWebhook(txResult.rootOrderId).catch((e) => {
+                console.error("❌ خطأ في إرسال الشحن بعد إغلاق طلب فرعي (market_unavailable):", e.message);
+            });
+        }
+
         res.json({
             ok: true,
             marketUnavailable: txResult.reachedThreshold,
             rejectedCount: txResult.rejectedCount,
             threshold: SHORTAGE_THRESHOLD,
             shortageAlerts: itemLabels,
+            unblockedOrders: txResult.unblockedLegIds.map((x) => String(x)),
         });
     } catch (err) {
         const status = err.httpStatus || 500;
@@ -1182,8 +1250,9 @@ router.get("/orders/:id/shortages", async (req, res) => {
     🔁 بروكسي: إرسال تحديث الشحن إلى n8n Webhook
     ------------------------------------------------------------
     🆕 (تعديل مهم) الإرسال الفعلي بقى مركزي بالكامل داخل
-    PUT /orders/:id عبر trySendCombinedShippingWebhook — عشان
-    يجمع كل الصيدليات المشتركة في نفس سلسلة الطلب (تنفيذ جزئي)
+    PUT /orders/:id (وكمان POST /orders/:id/unavailable عند إغلاق
+    آخر طرف معلّق في السلسلة) عبر trySendCombinedShippingWebhook —
+    عشان يجمع كل الصيدليات المشتركة في نفس سلسلة الطلب (تنفيذ جزئي)
     في رسالة واحدة بس لشركة الشحن، بدل ما كل صيدلية تبعت رسالتها
     المستقلة بنفسها لحظة ما تدوس "خرج للتوصيل".
 
