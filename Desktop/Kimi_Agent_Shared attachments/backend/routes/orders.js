@@ -10,7 +10,11 @@ require("dotenv").config();
 function normalizeStatus(status) {
     if (!status) return "pending";
     const s = String(status).trim().toLowerCase();
-    const allowed = ["pending", "accepted", "partial", "rejected", "closed"];
+    /* 🆕 "market_unavailable" = حالة نهائية للطلبات "الفرعية" (الناتجة عن
+       تنفيذ جزئي) اللي اعتذر عن توفرها عدد كافٍ من الصيدليات (SHORTAGE_THRESHOLD).
+       الطلب في الحالة دي بيتقفل نهائيًا ويختفي من كل القوائم (GET /orders
+       بيستبعدها افتراضيًا تحت) — شوف /orders/:id/unavailable */
+    const allowed = ["pending", "accepted", "partial", "rejected", "closed", "market_unavailable"];
     return allowed.includes(s) ? s : "pending";
 }
 
@@ -305,6 +309,40 @@ async function getChainOrders(rootOrderId) {
 }
 
 /* ============================================================
+    🆕 buildUnavailableMessage — رسالة واحدة جاهزة للعميل بصيغة عادية
+    ------------------------------------------------------------
+    بتُستخدم في مكانين:
+    1) لما صنف واحد يوصل لعتبة النقص (SHORTAGE_THRESHOLD) أثناء
+       الـ Checklist بتاع التنفيذ الجزئي (POST /orders/:id/partial).
+    2) لما طلب "فرعي" كامل (parentOrderId) يتقفل نهائيًا لأن
+       SHORTAGE_THRESHOLD صيدليات مختلفة ضغطوا "غير متوفر في السوق"
+       عليه (POST /orders/:id/unavailable).
+
+    الرسالة بتتفحص هل فيه أي طرف تاني من نفس سلسلة الطلب (rootOrderId)
+    فعلاً بيتحرك (accepted/partial/closed) — لو أه، تضيف جملة "باقي
+    طلبك في الطريق إليك"، ولو لأ (الطلب كله كان بيدور على الصنف ده)
+    تكتفي بالاعتذار من غير ما توهم العميل إن فيه حاجة جاية.
+    itemLabels = مصفوفة نصوص جاهزة للعرض، زي ["علبة Panadol"].
+    ============================================================ */
+async function buildUnavailableMessage(rootOrderId, itemLabels) {
+    const names = itemLabels.filter(Boolean);
+    const itemsText = names.length ? names.join("، ") : "الصنف المطلوب";
+
+    let hasProgress = false;
+    try {
+        const chain = await getChainOrders(rootOrderId);
+        hasProgress = chain.some((o) => ["accepted", "partial", "closed"].includes(normalizeStatus(o.status)));
+    } catch (e) {
+        hasProgress = false;
+    }
+
+    const lines = [`عذرًا 💊 ${itemsText} غير متوفر حاليًا في مجموعة صيدلياتنا ولا بشكل عام في السوق حاليًا.`];
+    if (hasProgress) lines.push("باقي طلبك في الطريق إليك 🚚");
+    lines.push("شكرًا لتفهمك 💙");
+    return lines.join("\n");
+}
+
+/* ============================================================
     🆕 trySendCombinedShippingWebhook — رسالة شحن واحدة موحّدة
     ------------------------------------------------------------
     بتُستدعى في كل مرة أي طرف من سلسلة الطلب يوصل لحالة
@@ -330,6 +368,11 @@ async function getChainOrders(rootOrderId) {
        = rootOrderId (نفس رقم الأوردر الأصلي اللي شافه العميل)
        بغض النظر عن عدد الصيدليات.
 
+    ملاحظة 🆕: طلب "فرعي" اتقفل بحالة market_unavailable ملوش
+    workflowStatus خالص، فمش هيدخل في legs (لأن status بتاعه مش
+    ضمن accepted/partial/closed) — يعني السلسلة هتكمل شحن باقي
+    الأطراف عادي من غير ما تستنى الطلب المقفول ده أبدًا.
+
     بترجع { sent: bool, waiting: bool } للـ logging بس.
     ============================================================ */
 async function trySendCombinedShippingWebhook(rootOrderId) {
@@ -344,6 +387,7 @@ async function trySendCombinedShippingWebhook(rootOrderId) {
     );
 
     // أي طرف لسه معلّق (صيدلية تالتة لسه ماخدتش قرار) — لازم نستنى
+    // (طلب market_unavailable مش "pending" فمش بيتحسب هنا، وده مقصود)
     const unresolved = chain.filter((o) => normalizeStatus(o.status) === "pending");
 
     if (!legs.length || unresolved.length > 0) {
@@ -427,6 +471,12 @@ async function trySendCombinedShippingWebhook(rootOrderId) {
 
 /* ============================================================
     جلب جميع الطلبات
+    ------------------------------------------------------------
+    🆕 الطلبات اللي وصلت لحالة "market_unavailable" (طلب فرعي اتقفل
+    نهائيًا بعد اعتذار SHORTAGE_THRESHOLD صيدليات مختلفة عن توفره)
+    بتتستبعد تلقائيًا من القائمة العامة (من غير فلتر status محدد) —
+    عشان تختفي فعلاً من كل الداشبورد (أدمن وصيادلة) زي ما هو مطلوب.
+    لو حد محتاج يشوفها تحديدًا يقدر يستخدم ?status=market_unavailable
     ============================================================ */
 router.get("/orders", async (req, res) => {
     try {
@@ -452,6 +502,8 @@ router.get("/orders", async (req, res) => {
 
         if (status) {
             query += ` WHERE LOWER(o.status) = LOWER($1)`;
+        } else {
+            query += ` WHERE o.status != 'market_unavailable'`;
         }
 
         query += ` GROUP BY o.id ORDER BY o."createdAt" DESC`;
@@ -823,7 +875,13 @@ router.post("/orders/:id/partial", async (req, res) => {
             return { order, rootOrderId, shortageNow, childOrderId };
         });
 
+        /* 🆕 كل رسالة نقص هنا بقت بتحمل حقل "message" جاهز (نفس صيغة رسالة
+           إغلاق الطلب الفرعي بالكامل تحت في /unavailable) عشان الـ n8n
+           يبقى بس محتاج يبعت body.message لـ body.phone من غير أي تركيب
+           نص إضافي من جهته — نفس الـ webhook ونفس شكل النداء للحالتين */
         for (const shortItem of txResult.shortageNow) {
+            const label = shortItem.unit ? `${shortItem.unit} ${shortItem.name}` : shortItem.name;
+            const message = await buildUnavailableMessage(txResult.rootOrderId, [label]);
             sendN8nWebhook(N8N_SHORTAGE_WEBHOOK_URL, {
                 type: "medicine_out_of_stock",
                 order_id: id,
@@ -831,6 +889,7 @@ router.post("/orders/:id/partial", async (req, res) => {
                 phone: txResult.order.phone,
                 customer_name: txResult.order.customerName,
                 medicine_name: shortItem.name,
+                message,
             }).then((r) => {
                 if (!r.ok) console.error(`[Shortage Webhook ✗] فشل إبلاغ العميل بنفاد "${shortItem.name}":`, r.error || r.body);
                 else console.log(`[Shortage Webhook ✓] تم إبلاغ العميل بنفاد "${shortItem.name}"`);
@@ -858,13 +917,19 @@ router.post("/orders/:id/partial", async (req, res) => {
     ------------------------------------------------------------
     البوتن الرابع في تفاصيل الطلب — بيظهر بس على الطلبات اللي عندها
     parentOrderId (أصناف ناقصة أُعيد طرحها بعد تنفيذ جزئي سابق).
-    كل نداء هنا = اعتذار عادي (يضيف الصيدلية لـ rejectedBy فتختفي
-    الطلب من عندها) + تسجيل بلاغ نقص لكل صنف في الطلب في نفس جدول
-    medicine_shortage_reports المستخدم في /orders/:id/partial، مربوط
-    بـ rootOrderId. لو عدد الصيدليات المختلفة اللي بلّغت عن نفس الصنف
-    عبر نفس السلسلة وصل لـ SHORTAGE_THRESHOLD (5 افتراضيًا)، يتبعت
-    تلقائيًا نفس webhook تنبيه النقص المستخدم في partial بالظبط —
-    فمفيش أي تعديل مطلوب في n8n، نفس الـ workflow هيستقبل نفس الشكل.
+
+    🆕🆕 (التعديل المطلوب): الحساب هنا بقى على مستوى "الطلب نفسه" —
+    مش على مستوى كل صنف لوحده زي /partial. يعني بمجرد ما
+    SHORTAGE_THRESHOLD (5 افتراضيًا) صيدليات مختلفة يضغطوا البوتن ده
+    على نفس الطلب، الطلب ده بيتقفل نهائيًا بحالة جديدة
+    "market_unavailable" (بغض النظر عن إجمالي عدد الصيادلة النشطين)،
+    ويختفي فورًا من كل القوائم (GET /orders بيستبعدها افتراضيًا)،
+    ويتبعت webhook واحد للعميل فيه رسالة جاهزة تقول إن الأصناف دي مش
+    متوفرة وباقي الطلب (لو فيه تقدم في أي طرف تاني من السلسلة) في الطريق.
+
+    لو عدد الصيادلة النشطين أقل من SHORTAGE_THRESHOLD والكل اعتذر
+    قبل ما يوصل العدد للعتبة، الطلب بيتحول لـ "rejected" العادي
+    (بيفضل ظاهر في تبويب "المرفوضة") بدل ما يفضل عالق pending للأبد.
     ============================================================ */
 router.post("/orders/:id/unavailable", async (req, res) => {
     try {
@@ -905,45 +970,31 @@ router.post("/orders/:id/unavailable", async (req, res) => {
 
             const rootOrderId = order.rootOrderId || order.id;
             const items = resolveItems({ items: order.items, rawItems: order.items });
-            const shortageNow = [];
 
+            // نسجّل بلاغ نقص لكل صنف (للإحصائيات في صفحة shortages فقط —
+            // القرار النهائي هنا مبني على عدد بلاغات "الطلب" ده مش كل صنف)
             for (const item of items) {
-                const name = item.name;
-                if (!name) continue;
-
+                if (!item.name) continue;
                 await tx.run(
                     `INSERT INTO medicine_shortage_reports ("rootOrderId", medicine_name, "pharmacyId")
                      VALUES ($1, $2, $3)
                      ON CONFLICT ("rootOrderId", medicine_name, "pharmacyId") DO NOTHING`,
-                    [rootOrderId, name, pharmacyId]
+                    [rootOrderId, item.name, pharmacyId]
                 );
-
-                const countRow = await tx.get(
-                    `SELECT COUNT(DISTINCT "pharmacyId")::int as cnt FROM medicine_shortage_reports WHERE "rootOrderId" = $1 AND medicine_name = $2`,
-                    [rootOrderId, name]
-                );
-                const distinctCount = countRow ? countRow.cnt : 0;
-
-                const alreadyAlerted = await tx.get(
-                    `SELECT id FROM medicine_shortage_alerts WHERE "rootOrderId" = $1 AND medicine_name = $2`,
-                    [rootOrderId, name]
-                );
-
-                if (distinctCount >= SHORTAGE_THRESHOLD && !alreadyAlerted) {
-                    await tx.run(
-                        `INSERT INTO medicine_shortage_alerts ("rootOrderId", medicine_name) VALUES ($1, $2)
-                         ON CONFLICT ("rootOrderId", "medicine_name") DO NOTHING`,
-                        [rootOrderId, name]
-                    );
-                    shortageNow.push(name);
-                }
             }
 
-            const activePharmacists = await tx.all(
-                `SELECT id FROM users WHERE role = 'pharmacist' AND status = 'active'`
-            );
-            const allRejected = activePharmacists.every((p) => rejectedBy.includes(p.id));
-            const newStatus = allRejected ? "rejected" : "pending";
+            const reachedThreshold = rejectedBy.length >= SHORTAGE_THRESHOLD;
+
+            let newStatus;
+            if (reachedThreshold) {
+                newStatus = "market_unavailable";
+            } else {
+                const activePharmacists = await tx.all(
+                    `SELECT id FROM users WHERE role = 'pharmacist' AND status = 'active'`
+                );
+                const allRejected = activePharmacists.every((p) => rejectedBy.includes(p.id));
+                newStatus = allRejected ? "rejected" : "pending";
+            }
 
             await tx.run(
                 `UPDATE orders SET "rejectedBy" = $1::jsonb, status = $2, "updatedAt" = NOW() WHERE id = $3`,
@@ -952,34 +1003,50 @@ router.post("/orders/:id/unavailable", async (req, res) => {
 
             await tx.run(
                 `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
-                [id, `أبلغت ${pharmacyName} عن عدم توفر الطلب في السوق`, "#dc2626"]
+                [id, `أبلغت ${pharmacyName} عن عدم توفر الطلب في السوق (${rejectedBy.length}/${SHORTAGE_THRESHOLD})`, "#dc2626"]
             );
 
-            if (allRejected) {
+            if (reachedThreshold) {
+                await tx.run(
+                    `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                    [id, `تم إغلاق الطلب نهائيًا — اعتذرت ${SHORTAGE_THRESHOLD} صيدليات مختلفة عن توفره، وتم إبلاغ العميل`, "#dc2626"]
+                );
+            } else if (newStatus === "rejected") {
                 await tx.run(
                     `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
                     [id, "لم يتمكن أي صيدلي من التنفيذ", "#ef4444"]
                 );
             }
 
-            return { order, rootOrderId, shortageNow };
+            return { order, rootOrderId, items, reachedThreshold, rejectedCount: rejectedBy.length };
         });
 
-        for (const name of txResult.shortageNow) {
+        let itemLabels = [];
+        if (txResult.reachedThreshold) {
+            itemLabels = txResult.items.map((it) => (it.unit ? `${it.unit} ${it.name}` : it.name)).filter(Boolean);
+            const message = await buildUnavailableMessage(txResult.rootOrderId, itemLabels);
+
             sendN8nWebhook(N8N_SHORTAGE_WEBHOOK_URL, {
-                type: "medicine_out_of_stock",
+                type: "order_market_unavailable",
                 order_id: id,
                 root_order_id: txResult.rootOrderId,
                 phone: txResult.order.phone,
                 customer_name: txResult.order.customerName,
-                medicine_name: name,
+                medicines: itemLabels,
+                message,
             }).then((r) => {
-                if (!r.ok) console.error(`[Shortage Webhook ✗] فشل إبلاغ العميل بنفاد "${name}":`, r.error || r.body);
-                else console.log(`[Shortage Webhook ✓] تم إبلاغ العميل بنفاد "${name}"`);
+                if (!r.ok) console.error(`[Shortage Webhook ✗] فشل إبلاغ العميل بإغلاق الطلب #${id}:`, r.error || r.body);
+                else console.log(`[Shortage Webhook ✓] تم إبلاغ العميل بإغلاق الطلب #${id} نهائيًا (${itemLabels.join("، ")})`);
             });
         }
 
-        res.json({ ok: true, shortageAlerts: txResult.shortageNow });
+        res.json({
+            ok: true,
+            marketUnavailable: txResult.reachedThreshold,
+            rejectedCount: txResult.rejectedCount,
+            threshold: SHORTAGE_THRESHOLD,
+            shortageAlerts: itemLabels,
+        });
     } catch (err) {
         const status = err.httpStatus || 500;
         if (status === 500) {
@@ -1035,6 +1102,10 @@ router.patch("/orders/:id/reject/:pharmacyId", async (req, res) => {
 
 /* ============================================================
     إحصائيات الطلبات
+    ------------------------------------------------------------
+    🆕 نفس منطق GET /orders — الطلبات "market_unavailable" مستبعدة
+    من كل الأعداد (بما فيها total) عشان تختفي تمامًا من أي إحصائية
+    ظاهرة في الداشبورد.
     ============================================================ */
 router.get("/orders-stats", async (req, res) => {
     try {
@@ -1049,6 +1120,7 @@ router.get("/orders-stats", async (req, res) => {
                 COUNT(*) FILTER (WHERE LOWER(status) = 'partial')::int as partial,
                 COUNT(*) FILTER (WHERE LOWER(status) = 'rejected')::int as rejected
             FROM orders
+            WHERE status != 'market_unavailable'
         `);
 
         const result = stats || { total: 0, pending: 0, accepted: 0, partial: 0, rejected: 0 };
