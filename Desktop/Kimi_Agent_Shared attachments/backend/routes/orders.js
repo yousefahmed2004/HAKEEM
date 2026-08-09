@@ -309,6 +309,49 @@ async function getChainOrders(rootOrderId) {
 }
 
 /* ============================================================
+    🆕🆕 computeChainShippingBlock — هل الصيدلي المسؤول عن order
+    ده يقدر يدوس "خرج للتوصيل" دلوقتي ولا لأ؟
+    ------------------------------------------------------------
+    بتفحص باقي "أطراف" نفس سلسلة التنفيذ الجزئي (باستثناء order
+    نفسه) وترجّع:
+
+    - { blocked: false } لو مفيش أطراف تانية أصلاً (مش تنفيذ جزئي)،
+      أو كل الأطراف التانية اتحسمت (وصلت لـ "خرج للتوصيل"/"تسليم"،
+      أو اترفضت، أو اتقفلت نهائيًا بعدم توفر السوق).
+
+    - { blocked: true, reason: "pending" } لو لسه فيه طرف من نفس
+      السلسلة "pending" (يعني الأصناف الناقصة لسه معلقة، مفيش
+      صيدلية قررت بشأنها لسه).
+
+    - { blocked: true, reason: "other", pharmacyName } لو فيه طرف
+      تاني عنده صيدلية شغالة عليه فعليًا (accepted/partial/closed)
+      بس لسه ما وصلش لـ "خرج للتوصيل"/"تسليم".
+
+    نفس المنطق بالظبط المستخدم في trySendCombinedShippingWebhook
+    تحت (unresolved + allLegsReady)، بس هنا بيتفحص *قبل* السماح
+    بالخطوة نفسها، مش بس قبل إرسال رسالة الشحن.
+    ============================================================ */
+async function computeChainShippingBlock(order) {
+    const rootOrderId = order.rootOrderId || order.id;
+    const chain = await getChainOrders(rootOrderId);
+    const others = chain.filter((o) => String(o.id) !== String(order.id));
+
+    if (!others.length) return { blocked: false };
+
+    const stillPending = others.find((o) => normalizeStatus(o.status) === "pending");
+    if (stillPending) return { blocked: true, reason: "pending" };
+
+    const activeLeg = others.find(
+        (o) => o.pharmacyId
+            && ["accepted", "partial", "closed"].includes(normalizeStatus(o.status))
+            && !["out_for_delivery", "delivered"].includes(o.workflowStatus)
+    );
+    if (activeLeg) return { blocked: true, reason: "other", pharmacyName: activeLeg.pharmacyName };
+
+    return { blocked: false };
+}
+
+/* ============================================================
     🆕 buildUnavailableMessage — رسالة واحدة جاهزة للعميل بصيغة عادية
     ------------------------------------------------------------
     بتُستخدم في مكانين:
@@ -637,6 +680,16 @@ router.post("/orders", async (req, res) => {
     هل كل الصيدليات المشتركة في نفس سلسلة الطلب وصلت لنفس المرحلة
     ولا لسه — ولو الكل جاهز، تبعت رسالة شحن واحدة موحّدة تجمع كل
     الصيدليات، بدل ما كل صيدلية تبعت رسالتها المستقلة بنفسها.
+
+    🆕🆕 (حماية جديدة) قبل أي حاجة، لو الطلب اللي بيتحدّث بيحاول
+    يوصل لـ workflowStatus = "out_for_delivery"، بنتأكد أولًا (عبر
+    computeChainShippingBlock) إن مفيش طرف تاني من نفس سلسلة التنفيذ
+    الجزئي لسه معلّق أو بيتحرك — لو فيه، بنرفض الطلب بالكامل (409)
+    ومنعملش أي تحديث في قاعدة البيانات، عشان الصيدلي منيعش يقفل
+    طلبه أصلاً قبل ما باقي السلسلة تتحسم (أو تتقفل نهائيًا بعدم
+    توفر السوق). ده تحصين على مستوى السيرفر بالإضافة لتعطيل الزرار
+    في الفرونت إند (pages1.js) — حتى لو حصل تأخير مزامنة والزرار
+    ظهر شغال بالغلط، الطلب هيترفض هنا برضو.
     ============================================================ */
 router.put("/orders/:id", async (req, res) => {
     try {
@@ -648,6 +701,20 @@ router.put("/orders/:id", async (req, res) => {
             executedAt, deliveredAt, rejectedBy,
             timelineText, timelineColor,
         } = req.body;
+
+        if (workflowStatus === "out_for_delivery") {
+            const currentOrder = await db.get(`SELECT id, "rootOrderId" FROM orders WHERE id = $1`, [id]);
+            if (!currentOrder) {
+                return res.status(404).json({ ok: false, error: "الطلب غير موجود" });
+            }
+            const chainBlock = await computeChainShippingBlock(currentOrder);
+            if (chainBlock.blocked) {
+                const message = chainBlock.reason === "pending"
+                    ? "لسه في أصناف من نفس الطلب مستنية تتعين لصيدلية أخرى — استنى لحد ما تتحسم"
+                    : `استنى ${chainBlock.pharmacyName || "الصيدلية الأخرى"} تخلّص باقي الطلب أولًا`;
+                return res.status(409).json({ ok: false, error: message, blockedByChain: true, reason: chainBlock.reason });
+            }
+        }
 
         const finalStatus = workflowStatus === "out_for_delivery"
             ? "closed"
