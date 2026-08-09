@@ -451,23 +451,48 @@ App.pages = App.pages || {};
     { key: "delivered", label: "تم التسليم" },
   ];
 
+  /* ============================================================
+     🆕 chainBlockMessage(chainStatus) — رسالة واضحة للصيدلي تشرح
+     ليه زرار "خرج للتوصيل" متعطّل دلوقتي بسبب سلسلة تنفيذ جزئي.
+     ------------------------------------------------------------
+     reason === "pending"  → لسه فيه صنف/طلب فرعي في السلسلة معلّق
+                              (مفيش صيدلية اتعينت له لسه).
+     reason === "other"    → صيدلية تانية عندها جزء من نفس الطلب
+                              ولسه ما وصلتش لخطوة "خرج للتوصيل".
+     ============================================================ */
+  function chainBlockMessage(chainStatus) {
+    if (!chainStatus || !chainStatus.blocked) return "";
+    if (chainStatus.reason === "pending") {
+      return "لسه في أصناف ناقصة من نفس الطلب مستنية تتعين لصيدلية تانية — استنى لحد ما تتحسم (تتقبل أو يتأكد إنها مش متوفرة في السوق) قبل ما تقدر تبعت الطلب لشركة الشحن.";
+    }
+    return `الطلب ده جزء من تنفيذ جزئي — لازم ${esc(chainStatus.pharmacyName || "الصيدلية التانية")} تخلّص باقي أصناف الطلب الأول (لحد ما توصل هي كمان لـ"خرج للتوصيل")، وبعدين تقدر تبعت طلبك لشركة الشحن.`;
+  }
+
   function renderWorkflowButtons(o) {
     const seq = WORKFLOW_STEPS.map((s) => s.key);
     const currentIdx = seq.indexOf(o.workflowStatus);
     const isTerminal = o.workflowStatus === "delivered" || o.workflowStatus === "cancelled";
     const nextIdx = currentIdx + 1;
+    /* 🆕 حالة السلسلة (تنفيذ جزئي) — بتتحسب من الكاش المحلي، وبتتفحص
+       بس لما "خرج للتوصيل" هي الخطوة التالية، عشان نعطّل الزرار ده
+       تحديدًا (مش أي خطوة تانية) ونوضح السبب بدل ما يفضل شغال بالغلط */
+    const chainStatus = (nextIdx === seq.indexOf("out_for_delivery") && !isTerminal)
+      ? S().chainShippingStatus(o)
+      : { blocked: false };
 
     const stepButtons = WORKFLOW_STEPS.map((item, idx) => {
       const isDone = idx <= currentIdx;
       const isNext = idx === nextIdx && !isTerminal;
-      const disabled = !isNext;
-      return `<button class="btn btn-soft btn-sm" data-workflow="${item.key}" ${disabled ? "disabled" : ""} style="${isDone ? "opacity:.55" : ""}">${isDone ? icon("check", 13) + " " : ""}${item.label}</button>`;
+      const isChainBlocked = item.key === "out_for_delivery" && isNext && chainStatus.blocked;
+      const disabled = !isNext || isChainBlocked;
+      const titleAttr = isChainBlocked ? ` title="${esc(chainBlockMessage(chainStatus))}"` : "";
+      return `<button class="btn btn-soft btn-sm" data-workflow="${item.key}" ${disabled ? "disabled" : ""}${titleAttr} style="${isDone ? "opacity:.55" : ""}${isChainBlocked ? "opacity:.55;cursor:not-allowed" : ""}">${isDone ? icon("check", 13) + " " : ""}${isChainBlocked ? icon("clock", 13) + " " : ""}${item.label}</button>`;
     }).join("");
 
     const cancelDisabled = isTerminal;
     const cancelButton = `<button class="btn btn-danger-soft btn-sm" data-workflow="cancelled" ${cancelDisabled ? "disabled" : ""}>${icon("xCircle", 13)} إلغاء الطلب</button>`;
 
-    return stepButtons + cancelButton;
+    return { html: stepButtons + cancelButton, chainStatus };
   }
 
   function detailsHTML(o, user) {
@@ -528,6 +553,13 @@ App.pages = App.pages || {};
       ? `<div class="small muted" style="margin-top:4px">${icon("split", 13)} أصناف ناقصة أُعيد طرحها من الطلب <a href="#/orders/${esc(o.parentOrderId)}" style="color:var(--sky-700);font-weight:700">#${esc(o.parentOrderId)}</a></div>`
       : "";
 
+    /* 🆕 بيانات زرار الـ workflow + حالة السلسلة (لعرض بانر تحذيري لو
+       "خرج للتوصيل" هي الخطوة الجاية ومحجوبة بسبب صيدلية تانية) */
+    const workflowBtns = canManageWorkflow ? renderWorkflowButtons(o) : { html: "", chainStatus: { blocked: false } };
+    const chainBannerHTML = canManageWorkflow && workflowBtns.chainStatus.blocked
+      ? `<div class="small" style="margin-top:12px;padding:10px 13px;border-radius:var(--r-sm);background:#fef3c7;color:#92400e;display:flex;align-items:flex-start;gap:8px">${icon("alert", 15)} <span>${chainBlockMessage(workflowBtns.chainStatus)}</span></div>`
+      : "";
+
     return `
       <div class="page-anim">
         <div style="margin-bottom:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -564,8 +596,9 @@ App.pages = App.pages || {};
             <span class="badge badge-info">${esc(workflowStateMap[o.workflowStatus] || workflowStateMap.awaiting_receipt)}</span>
           </div>
           <div style="display:flex;gap:9px;flex-wrap:wrap">
-            ${renderWorkflowButtons(o)}
+            ${workflowBtns.html}
           </div>
+          ${chainBannerHTML}
           <p class="small muted" style="margin:12px 0 0">كل خطوة تتطلب تأكيدًا ولا يمكن الرجوع إليها بعد إتمامها — يجب اتباع الترتيب خطوة بخطوة.</p>
         </div>` : ""}
 
@@ -909,7 +942,12 @@ App.pages = App.pages || {};
          — عند "خرج للتوصيل": لو الطلب مقبول بالكامل بدون سعر، تُفتح نافذة السعر أولًا
          — نفس اللحظة دي الطلب بيتقفل تلقائيًا (status = "closed") من الباك إند
          — 🆕 نفس الأزرار دي بقت شغالة بالظبط لطلب "partial" (تنفيذ جزئي) كمان،
-           عشان يمشي في نفس خطوات الطلب العادي بالظبط (شوف canManageWorkflow فوق) */
+           عشان يمشي في نفس خطوات الطلب العادي بالظبط (شوف canManageWorkflow فوق)
+         — 🆕🆕 (حجب "خرج للتوصيل" بسبب سلسلة تنفيذ جزئي): قبل أي حاجة، لو الزرار
+           اللي اتدوس عليه هو "out_for_delivery"، بنعيد التحقق من chainShippingStatus
+           لحظيًا (مش بس وقت الرسم) — لأن حالة السلسلة ممكن تتغير بين لحظة فتح
+           الصفحة ولحظة الضغط الفعلي (مزامنة كل 6 ثواني). لو لسه محجوب، بنوقف
+           هنا بتوست واضح ومنفتحش أي مودال (سعر/تأكيد) خالص. */
       document.querySelectorAll("[data-workflow]").forEach((btn) => {
         btn.onclick = () => {
           const key = btn.dataset.workflow;
@@ -922,9 +960,25 @@ App.pages = App.pages || {};
             cancelled: "إلغاء الطلب",
           };
 
+          /* 🆕 حاجز أمان أخير قبل فتح أي مودال لخطوة "خرج للتوصيل" */
+          if (key === "out_for_delivery") {
+            const liveChainStatus = S().chainShippingStatus(o);
+            if (liveChainStatus.blocked) {
+              toast("لا يمكن الشحن الآن", chainBlockMessage(liveChainStatus), "warning", 7000);
+              refresh();
+              return;
+            }
+          }
+
           const applyStatus = (price) => {
             const result = S().updateOrderWorkflowStatus(o.id, user, key, price);
-            if (result) {
+            /* 🆕 نتيجة "blocked" (سلسلة تنفيذ جزئي لسه معلّقة) لازم تتفرّق
+               عن نتيجة النجاح — قبل كده كانت { blocked: true, ... } بتتحسب
+               "نجاح" غلط لأنها object صحيح (truthy)، فالتوست كان بيقول
+               "تم الشحن" من غير ما تتحدث أي بيانات فعليًا */
+            if (result && result.blocked) {
+              toast("لا يمكن الشحن الآن", chainBlockMessage(result), "warning", 7000);
+            } else if (result) {
               toast("تم تحديث حالة الطلب", labelMap[key], "success");
             } else {
               toast("تعذر تحديث حالة الطلب", "قد تكون هذه الخطوة تمت بالفعل أو غير مسموحة الآن", "error");
