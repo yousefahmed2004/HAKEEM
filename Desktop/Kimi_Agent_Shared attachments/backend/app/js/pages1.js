@@ -512,10 +512,10 @@ App.pages = App.pages || {};
     const canConfirmReceipt = user.role === "pharmacist" && o.status === "accepted" && o.executionPending && o.pharmacyId === user.id;
     /* بعد التعديل: "closed" هي امتداد طبيعي لـ "accepted" (الطلب خرج للتوصيل واتقفل)
        فلازم الصيدلي المسؤول عنه يفضل يقدر يشوف تفاصيله ويكمل خطوة "تم التسليم" لو لسه ماوصلتش.
-       🆕 وكمان "partial" (تنفيذ جزئي) لازم تتعامل معاملة "accepted" بالظبط في كل حاجة
-       تخص إدارة الـ workflow — عشان الطلب الجزئي يفضل ماشي في نفس خطوات الطلب العادي
-       (تجهيز → جاهز → خرج للتوصيل → تسليم) بدل ما يقف عند خطوة الاستلام بس. */
-    const canManageWorkflow = user.role === "pharmacist" && (o.status === "accepted" || o.status === "partial" || o.status === "closed") && o.pharmacyId === user.id;
+       🆕 (تعديل): "partial" (تنفيذ جزئي) ما بقاش بيدخل هنا أصلاً — صيدلية التنفيذ الجزئي
+       معندهاش تحكم في الـ workflow، الطلب هيتشحن مع باقي السلسلة أوتوماتيك لما الصيدلية
+       اللي كملت الباقي (accepted كامل) توصل لـ"خرج للتوصيل" — شوف الشرح تحت partialInfoBannerHTML */
+    const canManageWorkflow = user.role === "pharmacist" && (o.status === "accepted" || o.status === "closed") && o.pharmacyId === user.id;
     const canShowPhone = user.role === "admin" || ((o.status === "accepted" || o.status === "partial" || o.status === "closed") && o.pharmacyId === user.id);
     const capacityReached = user.role === "pharmacist" && o.status === "pending" && !S().canAcceptOrder(user);
     const workflowStateMap = { awaiting_receipt: "في انتظار تأكيد الاستلام", received: "تم استلام الطلب", preparing: "جاري التجهيز", ready: "جاهز للتوصيل", out_for_delivery: "خرج للتوصيل", delivered: "تم التسليم", cancelled: "إلغاء الطلب" };
@@ -560,6 +560,22 @@ App.pages = App.pages || {};
       ? `<div class="small" style="margin-top:12px;padding:10px 13px;border-radius:var(--r-sm);background:#fef3c7;color:#92400e;display:flex;align-items:flex-start;gap:8px">${icon("alert", 15)} <span>${chainBlockMessage(workflowBtns.chainStatus)}</span></div>`
       : "";
 
+    /* 🆕 بانر توضيحي للصيدلية اللي عملت تنفيذ جزئي — معندهاش تحكم في
+       الـ workflow خالص، بس بتفهم إن الطلب هيتشحن أوتوماتيك لما الصيدلية
+       اللي هتكمّل باقي الأصناف توصل لـ"خرج للتوصيل" */
+    const partialInfoBannerHTML = (user.role === "pharmacist" && o.status === "partial" && o.pharmacyId === user.id)
+      ? `
+        <div class="card" style="margin-bottom:20px;border:1.5px solid var(--sky-100);background:linear-gradient(135deg,var(--sky-50),#fff)">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="flex-shrink:0;color:var(--sky-700)">${icon("info", 20)}</div>
+            <div>
+              <div class="bold" style="font-size:14.5px;margin-bottom:3px">تم تسجيل تنفيذك الجزئي بنجاح</div>
+              <div class="small muted">الأصناف الناقصة أُعيد طرحها على باقي الصيادلة. بمجرد ما صيدلية تانية تكمّل باقي الطلب وتدوس "خرج للتوصيل"، هيتبعت الطلب بالكامل (نصيبك + نصيبها) لشركة الشحن تلقائيًا — مفيش أي إجراء إضافي مطلوب منك.</div>
+            </div>
+          </div>
+        </div>`
+      : "";
+
     return `
       <div class="page-anim">
         <div style="margin-bottom:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -588,6 +604,8 @@ App.pages = App.pages || {};
             </div>
           </div>
         </div>` : ""}
+
+        ${partialInfoBannerHTML}
 
         ${canManageWorkflow ? `
         <div class="card" style="margin-bottom:20px">
@@ -941,8 +959,8 @@ App.pages = App.pages || {};
          — ترتيب إجباري: خطوة واحدة تالية فقط متاحة، وكل خطوة تتطلب تأكيدًا نهائيًا
          — عند "خرج للتوصيل": لو الطلب مقبول بالكامل بدون سعر، تُفتح نافذة السعر أولًا
          — نفس اللحظة دي الطلب بيتقفل تلقائيًا (status = "closed") من الباك إند
-         — 🆕 نفس الأزرار دي بقت شغالة بالظبط لطلب "partial" (تنفيذ جزئي) كمان،
-           عشان يمشي في نفس خطوات الطلب العادي بالظبط (شوف canManageWorkflow فوق)
+         — 🆕 (تعديل) هذه الأزرار بقت خاصة بالطلبات "accepted/closed" فقط —
+           طلبات "partial" ما بقاش ليها أي زرار workflow أصلاً (شوف canManageWorkflow فوق)
          — 🆕🆕 (حجب "خرج للتوصيل" بسبب سلسلة تنفيذ جزئي): قبل أي حاجة، لو الزرار
            اللي اتدوس عليه هو "out_for_delivery"، بنعيد التحقق من chainShippingStatus
            لحظيًا (مش بس وقت الرسم) — لأن حالة السلسلة ممكن تتغير بين لحظة فتح
