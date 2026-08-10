@@ -235,6 +235,44 @@ async function expireOverdueOrders() {
     }
 }
 
+/* ============================================================
+    🆕 retryPendingShippingWebhooks — إعادة محاولة تلقائية لأي سلسلة
+    شحن "جاهزة" (كل أطرافها وصلت out_for_delivery/delivered) بس
+    رسالتها لسه ما وصلتش (فشل الإرسال قبل كده، والحجز القديم اتمسح
+    — شوف الإصلاح في trySendCombinedShippingWebhook).
+    ------------------------------------------------------------
+    من غير الدالة دي، لو فشل الإرسال مرة واحدة ومفيش أي تحديث تاني
+    هيحصل على نفس السلسلة (كل الأطراف خلصت شغلها خلاص)، مفيش أي
+    Event هيعيد نداء trySendCombinedShippingWebhook تاني، فالطلب
+    كان هيفضل من غير رسالة شحن للأبد.
+    بتتنادى مع كل GET /orders (يعني كل ~6 ثواني تلقائيًا من الفرونت
+    إند بتاع كل مستخدم فاتح الصفحة) — خفيفة لأنها بتشتغل بس على
+    السلاسل اللي "جاهزة" فعلاً ومالهاش صف ناجح في shipping_notifications.
+    ============================================================ */
+async function retryPendingShippingWebhooks() {
+    try {
+        const candidates = await db.all(`
+            SELECT DISTINCT COALESCE("rootOrderId", id) AS root_id
+            FROM orders
+            WHERE "pharmacyId" IS NOT NULL
+              AND "workflowStatus" IN ('out_for_delivery', 'delivered')
+        `);
+        for (const row of candidates) {
+            const rootId = row.root_id;
+            const already = await db.get(
+                `SELECT id FROM shipping_notifications WHERE "rootOrderId" = $1`,
+                [rootId]
+            );
+            if (already) continue; // اتبعتت قبل كده بنجاح — مفيش داعي نحاول تاني
+            await trySendCombinedShippingWebhook(rootId).catch((e) => {
+                console.error(`❌ فشل retry إرسال رسالة الشحن للسلسلة #${rootId}:`, e.message);
+            });
+        }
+    } catch (err) {
+        console.error("❌ خطأ في retryPendingShippingWebhooks:", err.message);
+    }
+}
+
 const STALE_PENDING_MINUTES = Number(process.env.STALE_PENDING_MINUTES || 30);
 
 async function expireStalePendingOrders() {
@@ -457,49 +495,72 @@ async function trySendCombinedShippingWebhook(rootOrderId) {
         [rootOrderId]
     );
     if (claim.changes === 0) {
-        // حد تاني بعت الرسالة قبلنا بلحظات — منبعتش تاني
+        // حد تاني بعت الرسالة قبلنا بلحظات (أو الإرسال نجح قبل كده) — منبعتش تاني
         return { sent: false, waiting: false };
     }
 
-    // تجميع بيانات كل صيدلية (pickup) لصف الشحن
-    const pickups = [];
-    for (const leg of legs) {
-        const ph = await db.get(
-            `SELECT "pharmacyName", address, phone FROM users WHERE id = $1`,
-            [leg.pharmacyId]
-        );
-        const items = leg.availableItems
-            ? (typeof leg.availableItems === "string" ? JSON.parse(leg.availableItems || "[]") : leg.availableItems)
-            : resolveItems({ items: leg.items, rawItems: leg.items });
+    /* ⚠️🆕 (إصلاح Bug — لا يوجد Retry بعد فشل الإرسال):
+       قبل كده كان الحجز فوق بيتثبّت نهائيًا حتى لو فشل الإرسال (مشكلة
+       شبكة، n8n واقف، رابط غلط...) — فأي محاولة تالية كانت بترجع
+       claim.changes === 0 وتتجاهل الإرسال للأبد، والطلب يفضل من غير
+       رسالة شحن نهائيًا رغم إن حالته اتقفلت "out_for_delivery".
+       الحل: try/catch حوالين الإرسال، ولو فشل نمسح الحجز فورًا عشان
+       أي استدعاء تالي لنفس الدالة (تحديث تاني على أي طرف من السلسلة،
+       أو محاولة يدوية) يقدر يعيد المحاولة من جديد. */
+    // 🆕 لازم تتعرف برّا الـtry عشان تفضل متاحة تحت (تسجيل التايملاين)
+    // حتى لو الإرسال فشل قبل ما يوصل لمرحلة بناء الـpayload
+    let result;
+    let pickups = [];
+    let totalPrice = 0;
 
-        pickups.push({
-            order_id: String(leg.id),
-            pharmacy_name: leg.pharmacyName || ph?.pharmacyName || "",
-            pharmacy_address: ph?.address || "",
-            pharmacy_phone: ph?.phone || "",
-            amount_to_collect: leg.price || 0,
-            items: Array.isArray(items) ? items.map((it) => (it && it.name ? it.name : it)) : [],
-        });
+    try {
+        for (const leg of legs) {
+            const ph = await db.get(
+                `SELECT "pharmacyName", address, phone FROM users WHERE id = $1`,
+                [leg.pharmacyId]
+            );
+            const items = leg.availableItems
+                ? (typeof leg.availableItems === "string" ? JSON.parse(leg.availableItems || "[]") : leg.availableItems)
+                : resolveItems({ items: leg.items, rawItems: leg.items });
+
+            pickups.push({
+                order_id: String(leg.id),
+                pharmacy_name: leg.pharmacyName || ph?.pharmacyName || "",
+                pharmacy_address: ph?.address || "",
+                pharmacy_phone: ph?.phone || "",
+                amount_to_collect: leg.price || 0,
+                items: Array.isArray(items) ? items.map((it) => (it && it.name ? it.name : it)) : [],
+            });
+        }
+
+        totalPrice = pickups.reduce((sum, p) => sum + (Number(p.amount_to_collect) || 0), 0);
+
+        const payload = {
+            order_id: String(rootOrderId),          // 🔒 ثابت — نفس رقم الأوردر مهما كان عدد الصيدليات
+            customer_name: rootOrder.customerName,
+            customer_phone: rootOrder.phone,
+            customer_address: rootOrder.address,
+            pickup_count: pickups.length,           // 1 لو صيدلية واحدة، 2+ لو تنفيذ جزئي بين صيدليات
+            pickups,                                // تفاصيل كل صيدلية بمبلغها المطلوب تحصيله
+            total_price: totalPrice,                // إجمالي التحصيل من كل الصيدليات مجتمعة
+        };
+
+        result = await sendN8nWebhook(N8N_SHIPPING_WEBHOOK_URL, payload);
+    } catch (err) {
+        result = { ok: false, error: err.message };
     }
 
-    const totalPrice = pickups.reduce((sum, p) => sum + (Number(p.amount_to_collect) || 0), 0);
-
-    const payload = {
-        order_id: String(rootOrderId),          // 🔒 ثابت — نفس رقم الأوردر مهما كان عدد الصيدليات
-        customer_name: rootOrder.customerName,
-        customer_phone: rootOrder.phone,
-        customer_address: rootOrder.address,
-        pickup_count: pickups.length,           // 1 لو صيدلية واحدة، 2+ لو تنفيذ جزئي بين صيدليات
-        pickups,                                // تفاصيل كل صيدلية بمبلغها المطلوب تحصيله
-        total_price: totalPrice,                // إجمالي التحصيل من كل الصيدليات مجتمعة
-    };
-
-    const result = await sendN8nWebhook(N8N_SHIPPING_WEBHOOK_URL, payload);
+    if (!result.ok) {
+        // 🆕 فشل الإرسال — نمسح الحجز عشان نسمح بإعادة المحاولة في أي
+        // استدعاء تالي لنفس السلسلة، بدل ما تفضل رسالة الشحن دي مش
+        // متبعتة للأبد
+        await db.run(`DELETE FROM shipping_notifications WHERE "rootOrderId" = $1`, [rootOrderId]).catch(() => {});
+    }
 
     // تسجيل نتيجة الإرسال في تايملاين كل الأطراف عشان يبان في تفاصيل كل طلب
     const noteText = result.ok
         ? `تم إبلاغ شركة الشحن — استلام من ${pickups.length} صيدلية بإجمالي ${totalPrice} جنيه`
-        : `تعذر إبلاغ شركة الشحن (${result.error || result.status || "خطأ غير معروف"})`;
+        : `تعذر إبلاغ شركة الشحن (${result.error || result.status || "خطأ غير معروف"}) — سيُعاد المحاولة تلقائيًا`;
     const noteColor = result.ok ? "#0ea5e9" : "#dc2626";
 
     for (const leg of legs) {
@@ -510,12 +571,12 @@ async function trySendCombinedShippingWebhook(rootOrderId) {
     }
 
     if (!result.ok) {
-        console.error(`[Shipping Webhook ✗] فشل إبلاغ شركة الشحن للسلسلة #${rootOrderId}:`, result.error || result.body);
+        console.error(`[Shipping Webhook ✗] فشل إبلاغ شركة الشحن للسلسلة #${rootOrderId} — رابط الإرسال: ${N8N_SHIPPING_WEBHOOK_URL}:`, result.error || result.status || result.body);
     } else {
         console.log(`[Shipping Webhook ✓] رسالة شحن موحّدة للسلسلة #${rootOrderId} — ${pickups.length} صيدلية`);
     }
 
-    return { sent: true, waiting: false };
+    return { sent: result.ok, waiting: false };
 }
 
 /* ============================================================
@@ -531,6 +592,7 @@ router.get("/orders", async (req, res) => {
     try {
         await expireOverdueOrders();
         await expireStalePendingOrders();
+        retryPendingShippingWebhooks().catch(() => {}); // لا ننتظرها — لا يجب أن تؤخر رد القائمة
 
         const { status } = req.query;
         let query = `
