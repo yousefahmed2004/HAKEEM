@@ -316,20 +316,28 @@ async function getChainOrders(rootOrderId) {
     نفسه) وترجّع:
 
     - { blocked: false } لو مفيش أطراف تانية أصلاً (مش تنفيذ جزئي)،
-      أو كل الأطراف التانية اتحسمت (وصلت لـ "خرج للتوصيل"/"تسليم"،
-      أو اترفضت، أو اتقفلت نهائيًا بعدم توفر السوق).
+      أو مفيش أي طرف من السلسلة لسه "pending" (يعني الأصناف الناقصة
+      اتحسمت خلاص — سواء بقبول صيدلية تانية أو بإغلاقها نهائيًا
+      market_unavailable).
 
     - { blocked: true, reason: "pending" } لو لسه فيه طرف من نفس
       السلسلة "pending" (يعني الأصناف الناقصة لسه معلقة، مفيش
       صيدلية قررت بشأنها لسه).
 
-    - { blocked: true, reason: "other", pharmacyName } لو فيه طرف
-      تاني عنده صيدلية شغالة عليه فعليًا (accepted/partial/closed)
-      بس لسه ما وصلش لـ "خرج للتوصيل"/"تسليم".
+    ⚠️🆕 (إصلاح تعليق متبادل — Deadlock Fix): قبل كده كان فيه شرط
+    إضافي هنا بيحجب لو "فيه طرف تاني اتعين له صيدلية (accepted/
+    partial/closed) بس لسه ما وصلش لـ(خرج للتوصيل)". الشرط ده كان
+    بيعمل تعليق متبادل حقيقي: لو A نفذت جزء وB نفذت الباقي، فـA
+    كانت بتتحجب لحد ما B توصل "خرج للتوصيل"، وفي نفس الوقت B (من
+    منظورها هي) كانت بتتحجب لحد ما A توصل "خرج للتوصيل" — فكلاهما
+    يفضل محجوب للأبد ومحدش يقدر يتحرك أول واحد.
 
-    نفس المنطق بالظبط المستخدم في trySendCombinedShippingWebhook
-    تحت (unresolved + allLegsReady)، بس هنا بيتفحص *قبل* السماح
-    بالخطوة نفسها، مش بس قبل إرسال رسالة الشحن.
+    بمجرد ما كل الأطراف اتعينت (مفيش pending)، كل صيدلية المفروض
+    تقدر تدوس "خرج للتوصيل" في وقتها المستقل. رسالة الشحن الموحّدة
+    (trySendCombinedShippingWebhook تحت) هي أصلاً المسؤولة عن
+    الانتظار الفعلي لحد ما *كل* الأطراف المُعيّنة توصل فعليًا
+    لـ"خرج للتوصيل" قبل ما تتبعت لشركة الشحن — فمفيش داعي لتكرار
+    نفس الحماية على مستوى الزرار، وده كان سبب القفلة.
     ============================================================ */
 async function computeChainShippingBlock(order) {
     const rootOrderId = order.rootOrderId || order.id;
@@ -340,13 +348,6 @@ async function computeChainShippingBlock(order) {
 
     const stillPending = others.find((o) => normalizeStatus(o.status) === "pending");
     if (stillPending) return { blocked: true, reason: "pending" };
-
-    const activeLeg = others.find(
-        (o) => o.pharmacyId
-            && ["accepted", "partial", "closed"].includes(normalizeStatus(o.status))
-            && !["out_for_delivery", "delivered"].includes(o.workflowStatus)
-    );
-    if (activeLeg) return { blocked: true, reason: "other", pharmacyName: activeLeg.pharmacyName };
 
     return { blocked: false };
 }
@@ -684,12 +685,17 @@ router.post("/orders", async (req, res) => {
     🆕🆕 (حماية جديدة) قبل أي حاجة، لو الطلب اللي بيتحدّث بيحاول
     يوصل لـ workflowStatus = "out_for_delivery"، بنتأكد أولًا (عبر
     computeChainShippingBlock) إن مفيش طرف تاني من نفس سلسلة التنفيذ
-    الجزئي لسه معلّق أو بيتحرك — لو فيه، بنرفض الطلب بالكامل (409)
-    ومنعملش أي تحديث في قاعدة البيانات، عشان الصيدلي منيعش يقفل
-    طلبه أصلاً قبل ما باقي السلسلة تتحسم (أو تتقفل نهائيًا بعدم
-    توفر السوق). ده تحصين على مستوى السيرفر بالإضافة لتعطيل الزرار
-    في الفرونت إند (pages1.js) — حتى لو حصل تأخير مزامنة والزرار
-    ظهر شغال بالغلط، الطلب هيترفض هنا برضو.
+    الجزئي لسه "pending" (معلّق فعليًا، مفيش صيدلية اتعينت له) —
+    لو فيه، بنرفض الطلب بالكامل (409) ومنعملش أي تحديث في قاعدة
+    البيانات، عشان الصيدلي منيعش يقفل طلبه أصلاً قبل ما باقي
+    السلسلة تتحسم (أو تتقفل نهائيًا بعدم توفر السوق). ده تحصين على
+    مستوى السيرفر بالإضافة لتعطيل الزرار في الفرونت إند (pages1.js)
+    — حتى لو حصل تأخير مزامنة والزرار ظهر شغال بالغلط، الطلب هيترفض
+    هنا برضو.
+
+    ⚠️ الحجب هنا بيقتصر بس على وجود طرف "pending" (شوف
+    computeChainShippingBlock فوق للتفاصيل وسبب إزالة شرط "طرف شغال
+    لسه ما وصلش خرج للتوصيل" — كان بيعمل تعليق متبادل بين الصيدليات).
     ============================================================ */
 router.put("/orders/:id", async (req, res) => {
     try {
@@ -709,9 +715,7 @@ router.put("/orders/:id", async (req, res) => {
             }
             const chainBlock = await computeChainShippingBlock(currentOrder);
             if (chainBlock.blocked) {
-                const message = chainBlock.reason === "pending"
-                    ? "لسه في أصناف من نفس الطلب مستنية تتعين لصيدلية أخرى — استنى لحد ما تتحسم"
-                    : `استنى ${chainBlock.pharmacyName || "الصيدلية الأخرى"} تخلّص باقي الطلب أولًا`;
+                const message = "لسه في أصناف من نفس الطلب مستنية تتعين لصيدلية أخرى — استنى لحد ما تتحسم";
                 return res.status(409).json({ ok: false, error: message, blockedByChain: true, reason: chainBlock.reason });
             }
         }
