@@ -654,6 +654,11 @@ router.post("/orders", async (req, res) => {
 
     و"خرج للتوصيل" برضو لسه بتتحقق من computeChainShippingBlock —
     (مفيش طرف تاني في السلسلة لسه "pending").
+
+    ملحوظة: الطلبات اللي كانت "partial" وترقّت لـ "accepted" (شوف
+    /orders/:id/unavailable تحت — حالة "استحالة توفير الباقي من
+    السوق كليًا") بتعدي من هنا عادي زي أي طلب accepted تاني، لأن
+    normalizeStatus(currentOrder.status) بقى "accepted" مش "partial".
     ============================================================ */
 router.put("/orders/:id", async (req, res) => {
     try {
@@ -1049,20 +1054,55 @@ router.post("/orders/:id/unavailable", async (req, res) => {
 
                 if (!stillUnresolved) {
                     shouldRetryShipping = true;
-                    // 🆕 بنبلّغ بس الأطراف "الطرفية" (accepted/closed) اللي فعلاً
-                    // عندها زرار workflow — أطراف partial (لو موجودة) مش محتاجة
-                    // تنبيه هنا لأنها أصلاً معندهاش تحكم في الشحن
+
+                    /* ============================================================
+                       🆕🆕 ترقية الأطراف "partial" العالقة إلى "accepted"
+                       ------------------------------------------------------------
+                       المشكلة: لو صيدلية عملت تنفيذ جزئي (status = "partial")
+                       والأصناف الناقصة اتأكد نفاد توفيرها من السوق بالكامل (كل
+                       الـ 5 صيدليات اعتذرت عن الطلب الفرعي)، فمفيش أي صيدلية
+                       تانية هتكمّل باقي الطلب. الصيدلية دي كانت هتفضل عالقة على
+                       status = "partial" اللي أصلاً معندهاش أي زرار workflow
+                       (شوف canManageWorkflow في pages1.js + الحماية 409 في
+                       PUT /orders/:id فوق) — يعني معندهاش أي وسيلة تبعت الطلب
+                       لشركة الشحن.
+
+                       الحل: أي طرف "partial" في السلسلة (غير الطلب الفرعي ده
+                       نفسه) بيترقّى هنا لـ "accepted" — بكده بياخد نفس صلاحيات
+                       أي طلب مقبول بالكامل عادي: تفاصيله تظهر مع Active Orders،
+                       ويقدر يكمل خطوة بخطوة لحد "خرج للتوصيل"، وبعدين
+                       trySendCombinedShippingWebhook هيتعامل معاه تلقائيًا
+                       كـ terminal leg زي أي طرف accepted تاني.
+                       ============================================================ */
+                    const partialLegsToPromote = chainAfter.filter((o) =>
+                        String(o.id) !== String(id) &&
+                        o.pharmacyId &&
+                        normalizeStatus(o.status) === "partial"
+                    );
+                    for (const leg of partialLegsToPromote) {
+                        await tx.run(
+                            `UPDATE orders SET status = 'accepted', "updatedAt" = NOW() WHERE id = $1`,
+                            [leg.id]
+                        );
+                    }
+                    const promotedIds = new Set(partialLegsToPromote.map((p) => String(p.id)));
+
+                    // 🆕 بنبلّغ الأطراف "الطرفية" الأصلية (accepted/closed) + الأطراف
+                    // الـ partial اللي اترقّت لتوها لـ accepted (بقى عندهم تحكم كامل)
                     const legsToNotify = chainAfter.filter((o) =>
                         String(o.id) !== String(id) &&
                         o.pharmacyId &&
-                        ["accepted", "closed"].includes(normalizeStatus(o.status)) &&
+                        (["accepted", "closed"].includes(normalizeStatus(o.status)) || promotedIds.has(String(o.id))) &&
                         !["out_for_delivery", "delivered", "cancelled"].includes(o.workflowStatus)
                     );
                     for (const leg of legsToNotify) {
                         unblockedLegIds.push(leg.id);
+                        const noteText = promotedIds.has(String(leg.id))
+                            ? "تعذّر توفير باقي أصناف الطلب من أي صيدلية أخرى في السوق — تم تحويل تنفيذك الجزئي إلى طلب مقبول بالكامل، ويمكنك الآن متابعة الطلب وإرساله لشركة الشحن مباشرة"
+                            : "تعذّر توفير باقي أصناف الطلب من أي صيدلية أخرى في السوق — يمكنك الآن إرسال الطلب لشركة الشحن مباشرة";
                         await tx.run(
                             `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
-                            [leg.id, "تعذّر توفير باقي أصناف الطلب من أي صيدلية أخرى في السوق — يمكنك الآن إرسال الطلب لشركة الشحن مباشرة", "#0ea5e9"]
+                            [leg.id, noteText, "#0ea5e9"]
                         );
                     }
                 }
