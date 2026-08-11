@@ -489,11 +489,51 @@ window.App = window.App || {};
       const id = sessionStorage.getItem(SESSION_KEY);
       return id ? db.users.find((u) => u.id === id) || null : null;
     },
-    updateProfile(userId, patch) {
+
+    /* ============================================================
+       🛠️ (تعديل) updateProfile()
+       ------------------------------------------------------------
+       المشكلة القديمة: الدالة دي كانت بتحدّث بيانات اليوزر (زي الاسم)
+       في db.users محليًا بس (localStorage) وماكانتش بتبعت أي حاجة
+       للـ backend خالص — رغم إن App.api.updateProfile(userId, patch)
+       موجودة وجاهزة أصلًا (وبتُستخدم فعليًا في updatePharmacist تحت).
+
+       النتيجة: لما تغيّر اسم المدير من "الملف الشخصي"، التعديل بيفضل
+       في المتصفح بتاعك بس. أول ما تعمل تسجيل خروج ودخول تاني، دالة
+       login() (فوق) بتجيب بيانات اليوزر *من السيرفر* وتدهس بيها
+       النسخة المحلية بالكامل — وبما إن السيرفر أصلاً معندوش الاسم
+       الجديد (لأنه ما اتبعتلوش)، الاسم القديم بيرجع تاني.
+
+       الحل: خليت الدالة async وبتبعت التعديل للـ backend أولًا
+       (بالظبط زي updatePharmacist)، ولو نجح بتاخد النسخة الراجعة من
+       السيرفر وتحدّث بيها محليًا. لو فشل الاتصال (مفيش نت مثلًا)
+       بترجع تحدّث محليًا بس كـ fallback عشان الواجهة تفضل شغالة،
+       لكن التعديل في الحالة دي هيضيع لو حصل logout قبل ما النت يرجع.
+
+       ⚠️ ملحوظة: بما إن الدالة بقت async، أي كود بينادي
+       S().updateProfile(...) (زي صفحة "الملف الشخصي" في pages3.js)
+       لازم يستخدم await قبل ما يقفل أي مودال أو يعمل toast نجاح،
+       بالظبط زي ما بيحصل مع updatePharmacist.
+       ============================================================ */
+    async updateProfile(userId, patch) {
       const u = db.users.find((x) => x.id === userId);
       if (!u) return;
+
+      try {
+        const result = await App.api.updateProfile(userId, patch);
+        if (result?.ok && result.user) {
+          Object.assign(u, result.user);
+          save(); emit();
+          return u;
+        }
+      } catch (e) {
+        console.error("⚠️ فشل حفظ الملف الشخصي في السيرفر، تم الحفظ محليًا فقط:", e.message);
+      }
+
+      // fallback محلي لو فشل الاتصال بالسيرفر
       Object.assign(u, patch);
       save(); emit();
+      return u;
     },
 
     /* إدارة الصيادلة (Admin) */
