@@ -11,6 +11,10 @@ App.pages = App.pages || {};
   /* ============================================================
      إyدارة الصيادلة (Admin فقط)
      ============================================================ */
+
+  /* 🆕 نص البحث الحالي في صفحة الصيادلة (بيُحفظ بين إعادات الرندر) */
+  let phQuery = "";
+
   function pharmacistRow(p, stats) {
     const st = stats.find((x) => x.id === p.id) || { accepted: 0, partial: 0, rejected: 0, total: 0 };
     const ringValue = Math.max(0, Math.min(100, st.executionRate || 0));
@@ -62,7 +66,6 @@ App.pages = App.pages || {};
 
   function pharmacistsHTML() {
     const list = S().getPharmacists();
-    const stats = S().pharmacyStats();
     const active = list.filter((p) => p.status === "active").length;
     return `
       <div class="page-anim">
@@ -73,17 +76,95 @@ App.pages = App.pages || {};
             </div>
             <button class="btn btn-primary" id="add-ph">${icon("plus", 17)} إضافة صيدلي</button>
           </div>
-          ${list.length ? `
-          <div class="table-wrap">
-            <table class="table">
-              <thead><tr>
-                <th>الصيدلية</th><th>اسم المستخدم</th><th>الهاتف</th><th>الطلبات</th><th>الحالة</th><th>تاريخ الانضمام</th><th>إجراءات</th>
-              </tr></thead>
-              <tbody>${list.map((p) => pharmacistRow(p, stats)).join("")}</tbody>
-            </table>
-          </div>` : emptyState("users", "لا يوجد صيادلة بعد", "أضف أول صيدلي ليبدأ استقبال الطلبات")}
+          <div class="field" style="margin-bottom:18px">
+            <div class="input-wrap">
+              ${icon("search", 18)}
+              <input class="input" id="ph-search" placeholder="ابحث باسم الصيدلية أو الصيدلي أو اسم المستخدم..." value="${esc(phQuery)}" />
+            </div>
+          </div>
+          <div id="ph-list"></div>
         </div>
       </div>`;
+  }
+
+  /* 🆕 تُعيد رسم جدول/قائمة الصيادلة فقط حسب نص البحث الحالي، وتربط
+     أزرار الإجراءات (تعديل/إيقاف/حذف) من جديد كل مرة لأن الصفوف بتتغير */
+  function renderPharmacistsList() {
+    const list = S().getPharmacists();
+    const stats = S().pharmacyStats();
+    const q = phQuery.trim().toLowerCase();
+    const filtered = q
+      ? list.filter((p) =>
+        (p.pharmacyName || "").toLowerCase().includes(q) ||
+        (p.name || "").toLowerCase().includes(q) ||
+        (p.username || "").toLowerCase().includes(q)
+      )
+      : list;
+
+    const target = document.getElementById("ph-list");
+    if (!target) return;
+
+    if (!filtered.length) {
+      target.innerHTML = q
+        ? emptyState("users", "لا توجد نتائج", "جرّب اسمًا آخر أو تحقق من الإملاء")
+        : emptyState("users", "لا يوجد صيادلة بعد", "أضف أول صيدلي ليبدأ استقبال الطلبات");
+      return;
+    }
+
+    target.innerHTML = `
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr>
+            <th>الصيدلية</th><th>اسم المستخدم</th><th>الهاتف</th><th>الطلبات</th><th>الحالة</th><th>تاريخ الانضمام</th><th>إجراءات</th>
+          </tr></thead>
+          <tbody>${filtered.map((p) => pharmacistRow(p, stats)).join("")}</tbody>
+        </table>
+      </div>`;
+
+    bindPharmacistRowActions();
+  }
+
+  /* 🆕 ربط أحداث أزرار كل صف (تعديل / إيقاف / حذف) — مفصولة في دالة
+     مستقلة عشان تتنادى تاني بعد كل إعادة رسم ناتجة عن البحث */
+  function bindPharmacistRowActions() {
+    document.querySelectorAll("[data-act]").forEach((btn) => {
+      btn.onclick = () => {
+        const p = S().getPharmacists().find((x) => x.id === btn.dataset.id);
+        if (!p) return;
+        if (btn.dataset.act === "edit") return openPharmacistModal(p);
+        if (btn.dataset.act === "toggle") {
+          const willSuspend = p.status === "active";
+          return confirmModal({
+            title: willSuspend ? "إيقاف حساب الصيدلي" : "إعادة تفعيل الحساب",
+            icon: willSuspend ? "ban" : "refresh",
+            danger: willSuspend,
+            message: willSuspend
+              ? `سيتم منع <b>${esc(p.pharmacyName)}</b> من تسجيل الدخول واستقبال الطلبات. يمكنك إعادة تفعيله في أي وقت.`
+              : `سيتمكن <b>${esc(p.pharmacyName)}</b> من تسجيل الدخول واستقبال الطلبات مرة أخرى.`,
+            confirmText: willSuspend ? "إيقاف الحساب" : "إعادة التفعيل",
+            async onConfirm() {
+              const newStatus = await S().togglePharmacistStatus(p.id);
+              toast(newStatus === "suspended" ? "تم إيقاف الحساب" : "تمت إعادة التفعيل", p.pharmacyName, newStatus === "suspended" ? "warning" : "success");
+              App.router.refresh();
+            },
+          });
+        }
+        if (btn.dataset.act === "delete") {
+          return confirmModal({
+            title: "حذف الصيدلي نهائيًا",
+            icon: "trash",
+            danger: true,
+            message: `سيتم حذف حساب <b>${esc(p.pharmacyName)}</b> نهائيًا ولن يتمكن من الدخول. (طلباته السابقة ستبقى في السجلات)`,
+            confirmText: "حذف نهائي",
+            onConfirm() {
+              S().deletePharmacist(p.id);
+              toast("تم حذف الصيدلي", p.pharmacyName, "error");
+              App.router.refresh();
+            },
+          });
+        }
+      };
+    });
   }
 
   function openPharmacistModal(existing) {
@@ -153,43 +234,13 @@ App.pages = App.pages || {};
     render: pharmacistsHTML,
     mount() {
       document.getElementById("add-ph").onclick = () => openPharmacistModal(null);
-      document.querySelectorAll("[data-act]").forEach((btn) => {
-        btn.onclick = () => {
-          const p = S().getPharmacists().find((x) => x.id === btn.dataset.id);
-          if (!p) return;
-          if (btn.dataset.act === "edit") return openPharmacistModal(p);
-          if (btn.dataset.act === "toggle") {
-            const willSuspend = p.status === "active";
-            return confirmModal({
-              title: willSuspend ? "إيقاف حساب الصيدلي" : "إعادة تفعيل الحساب",
-              icon: willSuspend ? "ban" : "refresh",
-              danger: willSuspend,
-              message: willSuspend
-                ? `سيتم منع <b>${esc(p.pharmacyName)}</b> من تسجيل الدخول واستقبال الطلبات. يمكنك إعادة تفعيله في أي وقت.`
-                : `سيتمكن <b>${esc(p.pharmacyName)}</b> من تسجيل الدخول واستقبال الطلبات مرة أخرى.`,
-              confirmText: willSuspend ? "إيقاف الحساب" : "إعادة التفعيل",
-              async onConfirm() {
-                const newStatus = await S().togglePharmacistStatus(p.id);
-                toast(newStatus === "suspended" ? "تم إيقاف الحساب" : "تمت إعادة التفعيل", p.pharmacyName, newStatus === "suspended" ? "warning" : "success");
-                App.router.refresh();
-              },
-            });
-          }
-          if (btn.dataset.act === "delete") {
-            return confirmModal({
-              title: "حذف الصيدلي نهائيًا",
-              icon: "trash",
-              danger: true,
-              message: `سيتم حذف حساب <b>${esc(p.pharmacyName)}</b> نهائيًا ولن يتمكن من الدخول. (طلباته السابقة ستبقى في السجلات)`,
-              confirmText: "حذف نهائي",
-              onConfirm() {
-                S().deletePharmacist(p.id);
-                toast("تم حذف الصيدلي", p.pharmacyName, "error");
-                App.router.refresh();
-              },
-            });
-          }
-        };
+
+      renderPharmacistsList();
+
+      const searchInput = document.getElementById("ph-search");
+      searchInput.addEventListener("input", (e) => {
+        phQuery = e.target.value;
+        renderPharmacistsList();
       });
     },
   };
@@ -197,9 +248,12 @@ App.pages = App.pages || {};
   /* ============================================================
      الإحصائيات (Admin فقط)
      ============================================================ */
+
+  /* 🆕 نص البحث الحالي في جدول إحصائيات الصيدليات */
+  let statPhQuery = "";
+
   function statisticsHTML() {
     const st = S().stats();
-    const ph = S().pharmacyStats();
     return `
       <div class="page-anim">
         <div class="grid grid-6" style="margin-bottom:20px">
@@ -232,39 +286,68 @@ App.pages = App.pages || {};
             <div class="card-title">${icon("store", 20)} إحصائيات الصيدليات — للمحاسبة الشهرية</div>
             <button class="btn btn-soft btn-sm" id="export-csv">${icon("fileText", 15)} تصدير CSV</button>
           </div>
-          <div class="table-wrap">
-            <table class="table">
-              <thead><tr>
-                <th>الصيدلية</th><th>الطلبات المنفذة</th><th>الجزئية</th><th>المرفوضة</th>
-                <th>إجمالي الطلبات</th><th>الإيرادات</th><th>نسبة التنفيذ</th>
-              </tr></thead>
-              <tbody>
-                ${ph.map((p) => {
-          const done = p.accepted + p.partial;
-          const rate = p.total ? Math.round((done / p.total) * 100) : 0;
-          return `
-                    <tr>
-                      <td>
-                        <div class="cell-main">${esc(p.name)}</div>
-                        <div class="cell-sub">${esc(p.pharmacist)} ${p.status === "suspended" ? "— موقوف" : ""}</div>
-                      </td>
-                      <td><span class="badge badge-accepted">${fmtNum(p.accepted)}</span></td>
-                      <td><span class="badge badge-partial">${fmtNum(p.partial)}</span></td>
-                      <td><span class="badge badge-rejected">${fmtNum(p.rejected)}</span></td>
-                      <td class="bold">${fmtNum(p.total)}</td>
-                      <td class="bold" style="color:var(--sky-700)">${fmtMoney(p.revenue)}</td>
-                      <td>
-                        <div style="display:flex;align-items:center;gap:9px">
-                          <div class="hb-track" style="width:90px;height:8px"><div class="hb-fill" style="width:${rate}%"></div></div>
-                          <span class="bold small">${rate}%</span>
-                        </div>
-                      </td>
-                    </tr>`;
-        }).join("")}
-              </tbody>
-            </table>
+          <div class="field" style="margin-bottom:18px">
+            <div class="input-wrap">
+              ${icon("search", 18)}
+              <input class="input" id="stat-ph-search" placeholder="ابحث باسم الصيدلية أو الصيدلي..." value="${esc(statPhQuery)}" />
+            </div>
           </div>
+          <div id="stat-ph-table"></div>
         </div>
+      </div>`;
+  }
+
+  /* 🆕 تُعيد رسم جدول إحصائيات الصيدليات فقط حسب نص البحث الحالي */
+  function renderPharmacyStatsTable() {
+    const ph = S().pharmacyStats();
+    const q = statPhQuery.trim().toLowerCase();
+    const filtered = q
+      ? ph.filter((p) =>
+        (p.name || "").toLowerCase().includes(q) ||
+        (p.pharmacist || "").toLowerCase().includes(q)
+      )
+      : ph;
+
+    const target = document.getElementById("stat-ph-table");
+    if (!target) return;
+
+    if (!filtered.length) {
+      target.innerHTML = emptyState("store", "لا توجد نتائج", "جرّب اسمًا آخر أو تحقق من الإملاء");
+      return;
+    }
+
+    target.innerHTML = `
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr>
+            <th>الصيدلية</th><th>الطلبات المنفذة</th><th>الجزئية</th><th>المرفوضة</th>
+            <th>إجمالي الطلبات</th><th>الإيرادات</th><th>نسبة التنفيذ</th>
+          </tr></thead>
+          <tbody>
+            ${filtered.map((p) => {
+        const done = p.accepted + p.partial;
+        const rate = p.total ? Math.round((done / p.total) * 100) : 0;
+        return `
+                <tr>
+                  <td>
+                    <div class="cell-main">${esc(p.name)}</div>
+                    <div class="cell-sub">${esc(p.pharmacist)} ${p.status === "suspended" ? "— موقوف" : ""}</div>
+                  </td>
+                  <td><span class="badge badge-accepted">${fmtNum(p.accepted)}</span></td>
+                  <td><span class="badge badge-partial">${fmtNum(p.partial)}</span></td>
+                  <td><span class="badge badge-rejected">${fmtNum(p.rejected)}</span></td>
+                  <td class="bold">${fmtNum(p.total)}</td>
+                  <td class="bold" style="color:var(--sky-700)">${fmtMoney(p.revenue)}</td>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:9px">
+                      <div class="hb-track" style="width:90px;height:8px"><div class="hb-fill" style="width:${rate}%"></div></div>
+                      <span class="bold small">${rate}%</span>
+                    </div>
+                  </td>
+                </tr>`;
+      }).join("")}
+          </tbody>
+        </table>
       </div>`;
   }
 
@@ -285,6 +368,15 @@ App.pages = App.pages || {};
       const grid = document.getElementById("stats-charts");
       if (window.innerWidth < 1100 && grid) grid.style.gridTemplateColumns = "1fr";
 
+      renderPharmacyStatsTable();
+
+      const searchInput = document.getElementById("stat-ph-search");
+      searchInput.addEventListener("input", (e) => {
+        statPhQuery = e.target.value;
+        renderPharmacyStatsTable();
+      });
+
+      /* تصدير CSV — بيصدّر كل الصيدليات دايمًا (بغض النظر عن نص البحث) عشان يفضل مرجع محاسبي كامل */
       document.getElementById("export-csv").onclick = () => {
         const rows = [["الصيدلية", "الصيدلي", "منفذة", "جزئية", "مرفوضة", "الإجمالي", "الإيرادات"]];
         S().pharmacyStats().forEach((p) => rows.push([p.name, p.pharmacist, p.accepted, p.partial, p.rejected, p.total, p.revenue]));
