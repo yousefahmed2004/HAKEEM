@@ -121,6 +121,7 @@ App.pages = App.pages || {};
               <button
                 class="btn btn-primary btn-lg btn-block"
                 type="submit"
+                id="login-submit-btn"
                 style="margin-top:6px"
               >
                 ${icon("logout", 18)}
@@ -156,6 +157,14 @@ App.pages = App.pages || {};
     </div>`;
   }
 
+  /* ============================================================
+     🛠️ (تعديل) mountLogin
+     ------------------------------------------------------------
+     دالة S().login() بقت async دلوقتي (بتتحقق من السيرفر الحقيقي
+     عبر /auth/login بدل النسخة المحلية اللي كانت بتتلخبط بعد أي
+     refresh). فـ form.onsubmit بقى async وبيستخدم await، ومع تعطيل
+     زرار الإرسال أثناء الانتظار عشان المستخدم مايضغطش أكتر من مرة.
+     ============================================================ */
   function mountLogin() {
     const form = document.getElementById("login-form");
     const err = document.getElementById("login-error");
@@ -172,9 +181,22 @@ App.pages = App.pages || {};
         err.classList.remove("show");
       };
     });
-    form.onsubmit = (e) => {
+    form.onsubmit = async (e) => {
       e.preventDefault();
-      const res = S().login(document.getElementById("login-username").value, document.getElementById("login-password").value);
+
+      const submitBtn = document.getElementById("login-submit-btn");
+      if (submitBtn) submitBtn.disabled = true;
+
+      let res;
+      try {
+        res = await S().login(
+          document.getElementById("login-username").value,
+          document.getElementById("login-password").value
+        );
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+
       if (!res.ok) {
         err.innerHTML = icon("alert", 17) + " " + esc(res.error);
         err.classList.add("show");
