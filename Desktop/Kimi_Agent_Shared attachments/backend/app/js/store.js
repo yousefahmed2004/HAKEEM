@@ -334,16 +334,42 @@ window.App = window.App || {};
   function save() { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
   function emit() { listeners.change.forEach((f) => f()); }
 
+  /* ============================================================
+     🛠️ (تعديل) hydratePharmacistsFromServer
+     ------------------------------------------------------------
+     المشكلة القديمة: كانت الدالة دي بتستبدل db.users بالكامل بقائمة
+     السيرفر، والسيرفر (لأسباب أمان طبيعية) مش بيرجّع الباسورد
+     الحقيقي في الـ response، فكانت الدالة بتحط قيمة افتراضية
+     "123456" بدل الباسورد الحقيقي اللي الأدمن حطّه لما ضاف الصيدلي.
+     النتيجة: أول ما تعمل refresh للصفحة، الباسورد المحلي بيتمسح
+     ويترجع "123456"، فاللوجن بالباسورد الحقيقي يفشل ويبان الحساب
+     "مش موجود".
+     الحل: لو عندنا نسخة محلية لنفس المستخدم بالفعل ومعاها باسورد،
+     نحافظ عليه بدل ما نستبدله بالقيمة الافتراضية. (الحل الجذري
+     الحقيقي في دالة login() تحت، اللي بقت بتتحقق من السيرفر مباشرة
+     بدل الاعتماد على النسخة المحلية أصلًا).
+     ============================================================ */
   async function hydratePharmacistsFromServer() {
     try {
       const res = await App.api.getPharmacists();
       if (!res?.ok || !Array.isArray(res.pharmacists)) return;
 
       const admin = db.users.find((u) => u.role === "admin");
-      const others = db.users.filter((u) => u.role !== "pharmacist");
-      const remotePharmacists = res.pharmacists.map((p) => ({ ...p, password: p.password || "123456" }));
+      const others = db.users.filter((u) => u.role !== "pharmacist" && u.role !== "admin");
+      const existingById = new Map(
+        db.users.filter((u) => u.role === "pharmacist").map((u) => [u.id, u])
+      );
 
-      db.users = admin ? [admin, ...remotePharmacists, ...others.filter((u) => u.role !== "admin")] : [...remotePharmacists, ...others];
+      const remotePharmacists = res.pharmacists.map((p) => {
+        const existing = existingById.get(p.id);
+        return {
+          ...p,
+          // حافظ على الباسورد المحلي المعروف لو السيرفر مرجّعوش (الحالة الطبيعية)
+          password: p.password || existing?.password || "123456",
+        };
+      });
+
+      db.users = admin ? [admin, ...remotePharmacists, ...others] : [...remotePharmacists, ...others];
       save();
       emit();
     } catch (e) {
@@ -394,13 +420,69 @@ window.App = window.App || {};
   App.store = {
     onChange(f) { listeners.change.push(f); },
 
-    /* الجلسة والدخول */
-    login(username, password) {
-      const u = db.users.find((x) => x.username.toLowerCase() === String(username).trim().toLowerCase());
-      if (!u || u.password !== password) return { ok: false, error: "بيانات الدخول غير صحيحة، حاول مرة أخرى" };
-      if (u.status === "suspended") return { ok: false, error: "🚫 تم إيقاف حسابك مؤقتًا عن العمل مع مجموعة حكيم — برجاء التواصل مع الإدارة لمزيد من التفاصيل", suspended: true };
-      sessionStorage.setItem(SESSION_KEY, u.id);
-      return { ok: true, user: u };
+    /* ============================================================
+       🛠️ (تعديل جذري) login()
+       ------------------------------------------------------------
+       المشكلة القديمة: كانت الدالة دي بتتحقق من اليوزرنيم/الباسورد
+       على النسخة المحلية (db.users) بس، من غير ما تكلّم الـ backend
+       خالص، رغم وجود App.api.login() جاهزة. النسخة المحلية دي بتتغير
+       وبتتمسح (زي ما شرحنا في hydratePharmacistsFromServer) فكان
+       اللوجن بيفشل بعد أي refresh لصيدلي اتضاف حديثًا.
+
+       الحل: بقت الدالة async وبتتحقق أولًا من السيرفر عبر
+       /auth/login (وهو المصدر الوحيد الموثوق للباسورد الحقيقي)،
+       ولو السيرفر مش متاح (مشكلة نت مثلًا) بترجع تتحقق من النسخة
+       المحلية كـ fallback بس عشان النظام يفضل شغال حتى لو الاتصال
+       اتقطع مؤقتًا.
+
+       ⚠️ ملحوظة: بما إن الدالة بقت async، أي كود بينادي
+       S().login(...) لازم يستخدم await (اتعدّل بالفعل في
+       pages3.js).
+       ============================================================ */
+    async login(username, password) {
+      const cleanUsername = String(username).trim();
+
+      try {
+        const res = await App.api.login(cleanUsername, password);
+
+        if (res && res.ok && res.user) {
+          // مزامنة المستخدم اللي رجع من السيرفر مع النسخة المحلية
+          // (مع الاحتفاظ بالباسورد الحقيقي عشان يشتغل الـ fallback المحلي لاحقًا لو الاتصال اتقطع)
+          const userToStore = { ...res.user, password: res.user.password || password };
+          const idx = db.users.findIndex((u) => u.id === userToStore.id);
+          if (idx >= 0) db.users[idx] = { ...db.users[idx], ...userToStore };
+          else db.users.push(userToStore);
+          save(); emit();
+
+          sessionStorage.setItem(SESSION_KEY, userToStore.id);
+          return { ok: true, user: userToStore };
+        }
+
+        if (res && res.suspended) {
+          return {
+            ok: false,
+            error: res.error || "🚫 تم إيقاف حسابك مؤقتًا عن العمل مع مجموعة حكيم — برجاء التواصل مع الإدارة لمزيد من التفاصيل",
+            suspended: true,
+          };
+        }
+
+        return { ok: false, error: (res && res.error) || "بيانات الدخول غير صحيحة، حاول مرة أخرى" };
+      } catch (e) {
+        console.error("⚠️ تعذر الاتصال بالسيرفر لتسجيل الدخول، سيتم التحقق من النسخة المحلية:", e.message);
+
+        // Fallback محلي (لو مفيش نت أو السيرفر واقع) — يعتمد على آخر نسخة معروفة محليًا
+        const u = db.users.find((x) => x.username.toLowerCase() === cleanUsername.toLowerCase());
+        if (!u || u.password !== password) return { ok: false, error: "بيانات الدخول غير صحيحة، حاول مرة أخرى" };
+        if (u.status === "suspended") {
+          return {
+            ok: false,
+            error: "🚫 تم إيقاف حسابك مؤقتًا عن العمل مع مجموعة حكيم — برجاء التواصل مع الإدارة لمزيد من التفاصيل",
+            suspended: true,
+          };
+        }
+        sessionStorage.setItem(SESSION_KEY, u.id);
+        return { ok: true, user: u };
+      }
     },
     logout() { sessionStorage.removeItem(SESSION_KEY); },
     currentUser() {
