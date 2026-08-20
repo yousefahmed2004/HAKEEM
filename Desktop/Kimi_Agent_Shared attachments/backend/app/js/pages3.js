@@ -129,28 +129,6 @@ App.pages = App.pages || {};
               </button>
             </form>
 
-            <div class="demo-box">
-              <div class="d-title">
-                ${icon("sparkles", 15)}
-                حسابات تجريبية — اضغط للتعبئة
-              </div>
-
-              <div class="d-row">
-                <span>مدير النظام (Admin)</span>
-                <span><code data-fill="admin">admin</code> / <code>123456</code></span>
-              </div>
-
-              <div class="d-row">
-                <span>صيدلي — صيدلية النور</span>
-                <span><code data-fill="noor">noor</code> / <code>123456</code></span>
-              </div>
-
-              <div class="d-row">
-                <span>صيدلي — صيدلية الشفاء</span>
-                <span><code data-fill="shefaa">shefaa</code> / <code>123456</code></span>
-              </div>
-            </div>
-
           </div>
         </div>
       </div>
@@ -174,13 +152,6 @@ App.pages = App.pages || {};
       inp.type = show ? "text" : "password";
       document.getElementById("pass-toggle").innerHTML = icon(show ? "eyeOff" : "eye", 17);
     };
-    document.querySelectorAll("[data-fill]").forEach((c) => {
-      c.onclick = () => {
-        document.getElementById("login-username").value = c.dataset.fill;
-        document.getElementById("login-password").value = "123456";
-        err.classList.remove("show");
-      };
-    });
     form.onsubmit = async (e) => {
       e.preventDefault();
 
