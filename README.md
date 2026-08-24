@@ -82,7 +82,7 @@ The complete Hakeem automation workflow is orchestrated through **n8n**.
 
 ### Workflow
 
-![Hakeem Workflow](./images/workflow.png)
+![Hakeem Workflow](workflow.png)
 
 The workflow handles:
 
@@ -134,7 +134,7 @@ Customer
 
 ### WhatsApp Conversation
 
-![WhatsApp Integration](./images/whatsapp.png)
+![WhatsApp Integration](whatsapp.png)
 
 ---
 
@@ -142,7 +142,7 @@ Customer
 
 Hakeem uses a **multi-agent architecture**, where each agent has a specific responsibility.
 
-![AI Agent Architecture](./images/agents.png)
+![AI Agent Architecture](agents.png)
 
 ---
 
@@ -293,7 +293,7 @@ This allows the system to:
 
 Hakeem uses **PostgreSQL** as the persistent data layer.
 
-![Database Architecture](./images/database.png)
+![Database Architecture](database.png)
 
 ### Main Tables
 
@@ -326,7 +326,7 @@ n8n is responsible for orchestrating the entire workflow.
 
 ### Automation Workflow
 
-![n8n Automation](./images/automation.png)
+![n8n Automation](automation.png)
 
 ---
 
@@ -394,23 +394,23 @@ n8n is responsible for orchestrating the entire workflow.
 
 ## 🔄 Workflow
 
-![Workflow](./images/workflow.png)
+![Workflow](workflow.png)
 
 ## 💬 WhatsApp
 
-![WhatsApp](./images/whatsapp.png)
+![WhatsApp](whatsapp.png)
 
 ## 🧠 AI Agents
 
-![AI Agents](./images/agents.png)
+![AI Agents](agents.png)
 
 ## 🗄️ Database
 
-![Database](./images/database.png)
+![Database](database.png)
 
 ## ⚙️ n8n Automation
 
-![Automation](./images/automation.png)
+![Automation](automation.png)
 
 ---
 
@@ -421,12 +421,11 @@ HAKEEM/
 │
 ├── README.md
 │
-├── images/
-│   ├── workflow.png
-│   ├── whatsapp.png
-│   ├── agents.png
-│   ├── database.png
-│   └── automation.png
+├── workflow.png
+├── whatsapp.png
+├── agents.png
+├── database.png
+├── automation.png
 │
 ├── workflows/
 │   └── hakeem-workflow.json
