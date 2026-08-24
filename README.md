@@ -134,13 +134,23 @@ Customer
 
 ### WhatsApp Conversation
 
-![WhatsApp Integration](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003859.png)
+![WhatsApp 1](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095252_121.jpg)
+
+![WhatsApp 2](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095253_121.jpg)
+
+![WhatsApp 3](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095254_121.jpg)
+
+![WhatsApp 4](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095255_121.jpg)
+
+![WhatsApp 5](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095257_121.jpg)
 
 ---
 
 # 🧠 AI Agent Architecture
 
 Hakeem uses a **multi-agent architecture**, where each agent has a specific responsibility.
+
+The system separates request routing, request processing, customer data collection, and database operations into dedicated components.
 
 ![AI Agent Architecture](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003908.png)
 
@@ -394,23 +404,15 @@ n8n is responsible for orchestrating the entire workflow.
 
 ## 🔄 Workflow
 
-![Workflow](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003848.png)
+![Workflow 1](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003848.png)
 
-## 💬 WhatsApp
+![Workflow 2](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003859.png)
 
-![WhatsApp](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003859.png)
+![Workflow 3](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003908.png)
 
-## 🧠 AI Agents
+![Workflow 4](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003928.png)
 
-![AI Agents](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003908.png)
-
-## 🗄️ Database
-
-![Database](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003928.png)
-
-## ⚙️ n8n Automation
-
-![Automation](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20004012.png)
+![Workflow 5](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20004012.png)
 
 ---
 
@@ -426,6 +428,12 @@ HAKEEM/
 ├── Screenshot 2026-08-25 003908.png
 ├── Screenshot 2026-08-25 003928.png
 ├── Screenshot 2026-08-25 004012.png
+│
+├── 5793933590256095252_121.jpg
+├── 5793933590256095253_121.jpg
+├── 5793933590256095254_121.jpg
+├── 5793933590256095255_121.jpg
+├── 5793933590256095257_121.jpg
 │
 ├── workflows/
 │   └── hakeem-workflow.json
