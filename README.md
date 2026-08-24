@@ -1,16 +1,14 @@
 # 🩺 Hakeem — AI-Powered Pharmacy Ordering Automation
 
-> An AI-powered pharmacy ordering and customer management system built with **n8n, PostgreSQL, and WhatsApp automation**.
+> An AI-powered pharmacy ordering and customer management system built with **n8n, PostgreSQL, WhatsApp, and AI Agents**.
 
 ---
 
 ## 📌 Overview
 
-**Hakeem** is an intelligent automation system designed to streamline pharmacy ordering through WhatsApp.
+**Hakeem** is an AI-powered pharmacy automation system designed to manage customer interactions and pharmacy orders through WhatsApp.
 
-The system uses AI agents to understand customer requests, manage conversations, collect missing customer information, handle orders, and maintain persistent sessions and customer data through a PostgreSQL database.
-
-The main goal is to transform a traditional WhatsApp-based pharmacy ordering process into an **automated, intelligent, and structured workflow**.
+The system combines **AI Agents, n8n automation, WhatsApp integration, and PostgreSQL** to create an intelligent and persistent ordering workflow.
 
 ---
 
@@ -18,139 +16,111 @@ The main goal is to transform a traditional WhatsApp-based pharmacy ordering pro
 
 * 🤖 AI-powered customer interaction
 * 💬 WhatsApp-based ordering
-* 🧠 Intelligent intent routing
-* 🔀 Router Agent for request classification
-* 📦 Upper / Lower Agents for specialized workflows
-* 👤 Automatic customer data collection
+* 🧠 AI intent classification
+* 🔀 Router Agent
+* 📦 Upper & Lower Agents
+* 👤 Automated customer data collection
 * 🗄️ PostgreSQL database integration
-* 🔄 Persistent conversation sessions
+* 🔄 Persistent session management
 * 🧾 Order management
-* 📍 Customer address management
-* 📱 Fully automated WhatsApp workflow
-* ⚡ Built with n8n automation
-* 🔎 Database validation before requesting information
-* 🧩 Modular multi-agent architecture
+* ⚡ n8n workflow automation
+* 🔗 WhatsApp API integration
 
 ---
 
 # 🏗️ System Architecture
 
-The overall system follows a multi-agent architecture:
-
 ```text
-                    ┌─────────────────┐
-                    │     WhatsApp    │
-                    │     Customer    │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │   WhatsApp API  │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │   Router Agent  │
-                    └────────┬────────┘
-                             │
-                  ┌──────────┴──────────┐
-                  │                     │
-                  ▼                     ▼
-          ┌──────────────┐      ┌──────────────┐
-          │ Upper Agent  │      │ Lower Agent  │
-          └──────┬───────┘      └──────┬───────┘
-                 │                     │
-                 └──────────┬──────────┘
-                            ▼
-                 ┌─────────────────────┐
-                 │ Customer Data /     │
-                 │ Order Processing    │
-                 └──────────┬──────────┘
-                            │
-                            ▼
-                 ┌─────────────────────┐
-                 │     PostgreSQL      │
-                 │      Database       │
-                 └─────────────────────┘
+                         ┌──────────────────┐
+                         │     WhatsApp     │
+                         │     Customer     │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │   WhatsApp API   │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │   Session Check  │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │   Router Agent   │
+                         └────────┬─────────┘
+                                  │
+                       ┌──────────┴──────────┐
+                       ▼                     ▼
+                ┌─────────────┐       ┌─────────────┐
+                │ Upper Agent │       │ Lower Agent │
+                └──────┬──────┘       └──────┬──────┘
+                       │                     │
+                       └──────────┬──────────┘
+                                  ▼
+                    ┌─────────────────────────┐
+                    │ Customer Data Collection│
+                    └────────────┬────────────┘
+                                 │
+                                 ▼
+                       ┌──────────────────┐
+                       │    PostgreSQL    │
+                       └────────┬─────────┘
+                                │
+                                ▼
+                       ┌──────────────────┐
+                       │ WhatsApp Response│
+                       └──────────────────┘
 ```
 
 ---
 
-## 🔄 Main Workflow
+# 🔄 Main Workflow
 
-### Workflow Diagram
+The complete Hakeem automation workflow is orchestrated through **n8n**.
 
-> 📸 **Add Workflow Screenshot Here**
+### Workflow
 
-```text
-[WhatsApp Message]
-        │
-        ▼
-[WhatsApp API]
-        │
-        ▼
-[Session Check]
-        │
-        ├── Existing Session ──► Continue Session
-        │
-        └── No Session ─────────► Create Session
-                                      │
-                                      ▼
-                              [Router Agent]
-                                      │
-                         ┌────────────┴────────────┐
-                         ▼                         ▼
-                   [Upper Agent]             [Lower Agent]
-                         │                         │
-                         └────────────┬────────────┘
-                                      ▼
-                           [Customer Data Check]
-                                      │
-                         ┌────────────┴────────────┐
-                         ▼                         ▼
-                  Data Complete              Data Missing
-                         │                         │
-                         ▼                         ▼
-                  Process Order           Ask For Missing
-                                                Data
-                                      │
-                                      ▼
-                                [PostgreSQL]
-```
-
-### 🔗 Workflow Screenshot
-
-Replace the placeholder below with your actual workflow image:
-
-```markdown
 ![Hakeem Workflow](./images/workflow.png)
-```
+
+The workflow handles:
+
+1. Receiving the WhatsApp message
+2. Checking the customer's session
+3. Routing the request
+4. Selecting the appropriate AI Agent
+5. Checking customer information
+6. Collecting missing data
+7. Processing the order
+8. Updating PostgreSQL
+9. Sending the response back to WhatsApp
 
 ---
 
 # 💬 WhatsApp Integration
 
-Hakeem uses WhatsApp as the primary communication channel between customers and the pharmacy system.
+WhatsApp is the primary communication channel between customers and the Hakeem system.
 
-Customers can send natural-language messages through WhatsApp without interacting directly with the database or internal systems.
-
-### WhatsApp Flow
+### WhatsApp Workflow
 
 ```text
 Customer
    │
-   │ WhatsApp Message
+   ▼
+WhatsApp
+   │
    ▼
 WhatsApp API
    │
    ▼
-n8n Workflow
+n8n
    │
    ▼
 AI Agents
    │
    ▼
-Database
+PostgreSQL
    │
    ▼
 AI Response
@@ -162,31 +132,23 @@ WhatsApp
 Customer
 ```
 
-### 📱 WhatsApp Screenshots
+### WhatsApp Conversation
 
-> 📸 **Add WhatsApp conversation screenshots here**
-
-```markdown
-![WhatsApp Conversation](./images/whatsapp-conversation.png)
-```
+![WhatsApp Integration](./images/whatsapp.png)
 
 ---
 
 # 🧠 AI Agent Architecture
 
-Hakeem uses multiple specialized AI agents instead of relying on a single large agent.
+Hakeem uses a **multi-agent architecture**, where each agent has a specific responsibility.
 
-This makes the system easier to control, maintain, debug, and extend.
+![AI Agent Architecture](./images/agents.png)
 
 ---
 
-## 1. Router Agent
+## Router Agent
 
-The **Router Agent** is responsible for determining which workflow should handle the customer's request.
-
-Its output is intentionally limited to a specific intent.
-
-Example:
+The Router Agent analyzes the customer's request and routes it to the appropriate workflow.
 
 ```text
 Customer Message
@@ -194,70 +156,70 @@ Customer Message
        ▼
  Router Agent
        │
-       ├── upper
-       │
-       └── lower
+   ┌───┴────┐
+   ▼        ▼
+ upper    lower
+   │        │
+   ▼        ▼
+Upper     Lower
+Agent     Agent
 ```
 
-The router prevents unrelated logic from being executed and directs the conversation to the appropriate agent.
-
----
-
-## 2. Upper Agent
-
-The **Upper Agent** handles requests classified as `upper`.
-
-It processes the request according to the business logic associated with the upper workflow.
+The router is designed to return a controlled intent such as:
 
 ```text
-Router
-   │
-   ▼
-Upper Agent
-   │
-   ├── Validate Data
-   ├── Process Request
-   ├── Access Database
-   └── Generate Response
+upper
+```
+
+or
+
+```text
+lower
 ```
 
 ---
 
-## 3. Lower Agent
+## Upper Agent
 
-The **Lower Agent** handles requests classified as `lower`.
+The Upper Agent handles requests classified as `upper`.
 
-```text
-Router
-   │
-   ▼
-Lower Agent
-   │
-   ├── Validate Data
-   ├── Process Request
-   ├── Access Database
-   └── Generate Response
-```
+Responsibilities include:
+
+* Understanding the request
+* Validating customer information
+* Processing the request
+* Communicating with the database
+* Generating the final response
+
+---
+
+## Lower Agent
+
+The Lower Agent handles requests classified as `lower`.
+
+Responsibilities include:
+
+* Understanding the request
+* Validating customer information
+* Processing the request
+* Communicating with the database
+* Generating the final response
 
 ---
 
 # 👤 Customer Data Collection
 
-One of the important components of Hakeem is the **Customer Data Collection Agent**.
+The **Customer Data Collection Agent** manages required customer information.
 
-The agent is responsible for collecting the required customer information.
+### Required Data
 
-### Required Information
-
-* Customer Name
-* Phone Number
+* Name
+* Phone number
 * Address
 
-Before asking the customer for information, the system checks the PostgreSQL database to determine which fields are already available.
+The system checks the database before asking the customer for information.
 
-### Example
-
-If the database contains:
+For example:
 
 ```text
 Name:     Yusuf Ahmed
@@ -265,43 +227,36 @@ Phone:    010XXXXXXXX
 Address:  NULL
 ```
 
-The agent should only ask:
+Instead of asking for all information again, the agent asks only for the missing field:
 
 ```text
 What is your address?
 ```
 
-Instead of asking for all customer information again.
-
-### Collection Logic
+### Collection Flow
 
 ```text
-                Customer
-                   │
-                   ▼
-          Check Customer DB
-                   │
-          ┌────────┴────────┐
-          ▼                 ▼
-     Data Complete      Data Missing
-          │                 │
-          ▼                 ▼
-     Continue Order    Identify Missing
-                            │
-                            ▼
-                    Ask ONE Field
-                            │
-                            ▼
-                    Update Database
+Customer
+   │
+   ▼
+Check Database
+   │
+   ├── Complete ───────► Continue
+   │
+   └── Missing ────────► Identify Missing Field
+                              │
+                              ▼
+                         Ask Customer
+                              │
+                              ▼
+                        Update Database
 ```
 
 ---
 
 # 🔄 Session Management
 
-Hakeem maintains conversation sessions to ensure that customers can continue an existing conversation without losing context.
-
-### Session Logic
+Hakeem maintains persistent sessions for customer conversations.
 
 ```text
 Incoming Message
@@ -309,234 +264,169 @@ Incoming Message
        ▼
 Check Session
        │
-   ┌───┴────┐
-   ▼        ▼
-Exists    Doesn't Exist
-   │           │
-   ▼           ▼
-Continue     Create
-Session      Session
-   │           │
-   └─────┬─────┘
-         ▼
+   ┌───┴──────┐
+   ▼          ▼
+Exists     Doesn't Exist
+   │            │
+   ▼            ▼
+Continue      Create
+Session       Session
+   │            │
+   └──────┬─────┘
+          ▼
       AI Agent
-         │
-         ▼
-      Response
+          │
+          ▼
+       Response
 ```
 
-This allows the system to distinguish between:
+This allows the system to:
 
-* New conversations
-* Existing conversations
-* Closed sessions
-* Active sessions
+* Continue active conversations
+* Reopen existing sessions when required
+* Create new sessions when no session exists
+* Maintain conversation context
 
 ---
 
 # 🗄️ Database Architecture
 
-Hakeem uses **PostgreSQL** as the main persistent data layer.
+Hakeem uses **PostgreSQL** as the persistent data layer.
 
-The database stores customer information, pharmacy information, sessions, orders, order items, and conversation history.
+![Database Architecture](./images/database.png)
 
 ### Main Tables
 
-| Table                | Purpose                                |
-| -------------------- | -------------------------------------- |
-| `customers`          | Stores customer information            |
-| `pharmacies`         | Stores pharmacy information            |
-| `order_sessions`     | Manages active ordering sessions       |
-| `order_items`        | Stores individual order items          |
-| `orders`             | Stores customer orders                 |
-| `order_timeline`     | Tracks order events and status changes |
-| `n8n_chat_histories` | Stores AI conversation history         |
+| Table                | Description                |
+| -------------------- | -------------------------- |
+| `customers`          | Customer information       |
+| `pharmacies`         | Pharmacy information       |
+| `order_sessions`     | Customer ordering sessions |
+| `order_items`        | Individual order items     |
+| `orders`             | Customer orders            |
+| `order_timeline`     | Order status and events    |
+| `n8n_chat_histories` | AI conversation history    |
 
 ---
 
-## 🗂️ Database Relationship
+# ⚙️ n8n Automation
 
-```text
-Customers
-    │
-    ├──────────────► Order Sessions
-    │
-    └──────────────► Orders
-                         │
-                         ▼
-                    Order Items
-                         │
-                         ▼
-                  Order Timeline
+n8n is responsible for orchestrating the entire workflow.
 
+### Main Responsibilities
 
-Pharmacies
-    │
-    └──────────────► Orders
+* WhatsApp message handling
+* Webhooks
+* Session management
+* AI Agent execution
+* Database queries
+* Customer data validation
+* Order processing
+* Sending WhatsApp responses
 
+### Automation Workflow
 
-AI Conversations
-    │
-    └──────────────► n8n_chat_histories
-```
-
----
-
-# ⚙️ Automation Workflow
-
-The entire automation pipeline is orchestrated using **n8n**.
-
-n8n is responsible for:
-
-* Receiving WhatsApp messages
-* Managing workflow execution
-* Checking sessions
-* Calling AI agents
-* Executing database queries
-* Updating customer information
-* Creating and updating orders
-* Sending responses back to WhatsApp
-
-### High-Level n8n Flow
-
-```text
-WhatsApp Trigger
-       │
-       ▼
-Session Management
-       │
-       ▼
-Router Agent
-       │
-       ├──────────────┐
-       ▼              ▼
-Upper Agent      Lower Agent
-       │              │
-       └───────┬──────┘
-               ▼
-      Customer Validation
-               │
-               ▼
-         PostgreSQL
-               │
-               ▼
-        Generate Response
-               │
-               ▼
-         WhatsApp API
-```
+![n8n Automation](./images/automation.png)
 
 ---
 
 # 🛠️ Tech Stack
 
-### Automation
-
-* **n8n**
-
-### AI
-
-* **LLM-based AI Agents**
-* Prompt-based intent routing
-* Multi-agent architecture
-
-### Database
-
-* **PostgreSQL**
-
-### Communication
-
-* **WhatsApp API**
-
-### Backend / Integration
-
-* REST APIs
-* Webhooks
-* SQL queries
-* JSON-based data exchange
+| Technology           | Purpose                               |
+| -------------------- | ------------------------------------- |
+| **n8n**              | Workflow automation                   |
+| **AI Agents / LLMs** | Understanding and processing requests |
+| **PostgreSQL**       | Persistent database                   |
+| **WhatsApp API**     | Customer communication                |
+| **REST APIs**        | System integration                    |
+| **Webhooks**         | Event-driven communication            |
+| **SQL**              | Database operations                   |
 
 ---
 
-# 🧩 Architecture Principles
+# 📊 End-to-End Flow
 
-Hakeem was designed around several principles:
-
-### 1. Modular Agents
-
-Each agent has a specific responsibility instead of putting the entire business logic into one AI agent.
-
-### 2. Database-Driven Context
-
-Customer information is retrieved from PostgreSQL instead of relying entirely on conversation memory.
-
-### 3. Persistent Sessions
-
-Customer conversations can continue across multiple messages.
-
-### 4. Minimal Data Collection
-
-The system only asks for information that is actually missing.
-
-### 5. Controlled AI Output
-
-Agents are given clearly defined responsibilities and expected outputs.
+```text
+                    CUSTOMER
+                       │
+                       ▼
+                   WhatsApp
+                       │
+                       ▼
+                WhatsApp API
+                       │
+                       ▼
+                     n8n
+                       │
+                       ▼
+                Session Manager
+                       │
+                       ▼
+                 Router Agent
+                       │
+              ┌────────┴────────┐
+              ▼                 ▼
+        Upper Agent        Lower Agent
+              │                 │
+              └────────┬────────┘
+                       ▼
+             Customer Data Agent
+                       │
+                       ▼
+                PostgreSQL
+                       │
+                       ▼
+                 Order Logic
+                       │
+                       ▼
+                 AI Response
+                       │
+                       ▼
+                   WhatsApp
+                       │
+                       ▼
+                    CUSTOMER
+```
 
 ---
 
 # 📸 Project Screenshots
 
-## n8n Workflow
+## 🔄 Workflow
 
-> Add your n8n workflow screenshot here.
+![Workflow](./images/workflow.png)
 
-```markdown
-![n8n Workflow](./images/n8n-workflow.png)
-```
+## 💬 WhatsApp
 
----
-
-## WhatsApp Conversation
-
-> Add WhatsApp screenshots here.
-
-```markdown
 ![WhatsApp](./images/whatsapp.png)
-```
 
----
+## 🧠 AI Agents
 
-## Database
-
-> Add your PostgreSQL / database diagram here.
-
-```markdown
-![Database Architecture](./images/database.png)
-```
-
----
-
-## 🤖 AI Agent Workflow
-
-> Add your AI agent architecture screenshot here.
-
-```markdown
 ![AI Agents](./images/agents.png)
-```
+
+## 🗄️ Database
+
+![Database](./images/database.png)
+
+## ⚙️ n8n Automation
+
+![Automation](./images/automation.png)
 
 ---
 
-# 📁 Suggested Repository Structure
+# 📁 Repository Structure
 
 ```text
-Hakeem/
+HAKEEM/
 │
 ├── README.md
 │
 ├── images/
 │   ├── workflow.png
 │   ├── whatsapp.png
+│   ├── agents.png
 │   ├── database.png
-│   └── agents.png
+│   └── automation.png
 │
 ├── workflows/
 │   └── hakeem-workflow.json
@@ -557,82 +447,82 @@ Hakeem/
 
 ---
 
-# 🚀 How It Works
+# 🚀 How Hakeem Works
 
-A typical customer interaction follows these steps:
+A typical customer interaction follows this pipeline:
 
 ```text
 1. Customer sends a WhatsApp message
-                    ↓
+              ↓
 2. WhatsApp API receives the message
-                    ↓
+              ↓
 3. n8n starts the workflow
-                    ↓
-4. System checks the customer's session
-                    ↓
-5. Router Agent determines the intent
-                    ↓
-6. Request is sent to Upper or Lower Agent
-                    ↓
-7. Required customer data is validated
-                    ↓
+              ↓
+4. Session is checked
+              ↓
+5. Router Agent classifies the request
+              ↓
+6. Upper or Lower Agent handles the request
+              ↓
+7. Customer information is validated
+              ↓
 8. Missing information is collected
-                    ↓
+              ↓
 9. PostgreSQL is updated
-                    ↓
+              ↓
 10. Order/request is processed
-                    ↓
-11. AI generates a response
-                    ↓
-12. Response is sent back through WhatsApp
+              ↓
+11. AI generates the response
+              ↓
+12. Response is sent through WhatsApp
 ```
 
 ---
 
 # 🎯 Project Goals
 
-Hakeem aims to:
+Hakeem was built to:
 
 * Automate pharmacy customer interactions
 * Reduce manual order processing
 * Improve customer experience
-* Maintain structured customer data
-* Reduce repetitive questions
-* Provide scalable AI-powered automation
-* Connect conversational AI with real business databases
+* Maintain structured customer information
+* Avoid repeatedly asking for existing data
+* Connect conversational AI with real business data
+* Build a scalable multi-agent automation architecture
 
 ---
 
 # 🔮 Future Improvements
 
-Potential future improvements include:
-
 * 📦 Advanced order tracking
-* 💳 Online payment integration
+* 💳 Payment integration
 * 🧾 Automated invoices
-* 📊 Pharmacy analytics dashboard
-* 🔔 Automated order notifications
-* 🧠 Improved long-term conversational memory
-* 🌐 Multi-pharmacy support
+* 📊 Analytics dashboard
+* 🔔 Automated notifications
+* 🧠 Advanced long-term memory
+* 🏪 Multi-pharmacy support
 * 📱 Mobile application
 * 📈 Customer analytics
-* 🔐 Advanced authentication and access control
 
 ---
 
-# 👨‍💻 Project
-
-**Hakeem — AI-Powered Pharmacy Ordering Automation**
-
-Built using:
-
-`n8n` · `PostgreSQL` · `WhatsApp API` · `AI Agents` · `REST APIs`
-
----
-
-## ⭐ Project Status
+# 📌 Project Status
 
 **Active Development**
 
-The architecture is modular and can be extended with additional AI agents, workflows, integrations, and pharmacy services.
+Hakeem is designed as a modular architecture that can be extended with additional agents, workflows, integrations, and pharmacy services.
 
+---
+
+# 👨‍💻 Author
+
+**Yousef Ahmed**
+
+AI Engineer | Machine Learning | Deep Learning | NLP | AI Automation
+
+---
+
+## ⭐ Hakeem
+
+**AI-powered pharmacy ordering automation through WhatsApp.**
