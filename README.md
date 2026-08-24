@@ -1122,37 +1122,12 @@ A typical customer interaction follows this pipeline:
 
 The Hakeem web platform provides the administrative and pharmacy interfaces used to manage the operational side of the system.
 
-**Website:** Coming Soon
+**Website:**
 
-> Add the website URL here when the platform is publicly available.
+> https://hakeem.sbs/
 
 ---
 
-# 📁 Repository Structure
-
-```text
-HAKEEM/
-│
-├── README.md
-│
-├── images/
-│   └── ...
-│
-├── workflows/
-│   └── hakeem-workflow.json
-│
-├── database/
-│   ├── schema.sql
-│   └── queries.sql
-│
-├── prompts/
-│   ├── router-agent.txt
-│   ├── upper-agent.txt
-│   ├── lower-agent.txt
-│   └── customer-data-agent.txt
-│
-└── docs/
-    └── architecture.md
 ```
 
 ---
