@@ -10,7 +10,7 @@
 
 The system combines **AI Agents, RAG, n8n automation, WhatsApp integration, and PostgreSQL** to create an intelligent and persistent pharmacy ordering workflow.
 
-Hakeem is designed to automate the communication between **customers, pharmacies, and the delivery process**, while maintaining structured customer data and order context.
+Hakeem automates communication between **customers, pharmacies, and delivery services**, while maintaining structured customer data and order context.
 
 ---
 
@@ -26,9 +26,13 @@ Hakeem is designed to automate the communication between **customers, pharmacies
 * 🗄️ PostgreSQL database integration
 * 🔄 Persistent session management
 * 📦 Order management
-* 🚚 Order status and delivery notifications
-* 🏪 Multi-pharmacy order aggregation
+* 🚚 Order tracking and delivery notifications
+* 🏪 Multi-pharmacy order fulfillment
 * 🔎 Pharmacy availability checking
+* 🔄 Partial order fulfillment
+* 📊 Admin dashboard
+* 🏪 Pharmacy dashboard
+* 📈 Sales and platform analytics
 * ⚡ n8n workflow automation
 * 🔗 WhatsApp API integration
 
@@ -66,9 +70,8 @@ Hakeem is designed to automate the communication between **customers, pharmacies
                        └──────────┬──────────┘
                                   ▼
                          ┌──────────────────┐
-                         │   RAG System     │
-                         │ Pharmacy/Policy  │
-                         │    Knowledge     │
+                         │    RAG System    │
+                         │ Hakeem Policies  │
                          └────────┬─────────┘
                                   │
                                   ▼
@@ -98,9 +101,7 @@ Hakeem is designed to automate the communication between **customers, pharmacies
 
 The complete Hakeem automation workflow is orchestrated through **n8n**.
 
-### Workflow
-
-![Hakeem Workflow](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20004012.png)
+![Main Workflow](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20004012.png)
 
 The workflow handles:
 
@@ -119,13 +120,60 @@ The workflow handles:
 
 ---
 
+# 💬 WhatsApp Integration
+
+WhatsApp is the primary communication channel between customers and Hakeem.
+
+```text
+Customer
+   │
+   ▼
+WhatsApp
+   │
+   ▼
+WhatsApp API
+   │
+   ▼
+n8n
+   │
+   ▼
+AI Agents
+   │
+   ▼
+RAG / PostgreSQL
+   │
+   ▼
+Order Processing
+   │
+   ▼
+AI Response
+   │
+   ▼
+WhatsApp
+   │
+   ▼
+Customer
+```
+
+### WhatsApp Conversation
+
+![WhatsApp 1](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095252_121.jpg)
+
+![WhatsApp 2](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095253_121.jpg)
+
+![WhatsApp 3](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095254_121.jpg)
+
+![WhatsApp 4](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095255_121.jpg)
+
+![WhatsApp 5](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095257_121.jpg)
+
+---
+
 # 🧠 AI Agent Architecture
 
 Hakeem uses a **multi-agent architecture**, where each agent has a specific responsibility.
 
-![AI Agent Architecture](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003928.png)
-
-The agent architecture is designed to separate different responsibilities and provide a controlled workflow for customer requests and pharmacy orders.
+![AI Agents](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003928.png)
 
 ---
 
@@ -148,7 +196,7 @@ Upper     Lower
 Agent     Agent
 ```
 
-The router is designed to return a controlled intent such as:
+The router returns a controlled intent:
 
 ```text
 upper
@@ -196,25 +244,25 @@ Responsibilities include:
 
 # 🧠 RAG System
 
-Hakeem integrates a **RAG (Retrieval-Augmented Generation)** system into the workflow.
+Hakeem integrates a **RAG (Retrieval-Augmented Generation)** system directly into the workflow.
 
-The RAG system is used to provide the AI agents with relevant information from the Hakeem knowledge base and operational policies.
+![RAG System](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003908.png)
 
-![Hakeem RAG System](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003908.png)
+The RAG system provides AI agents with relevant information from the Hakeem knowledge base and operational policies.
 
 ### RAG Knowledge Base
 
-The RAG system can provide the agents with information related to:
+The system can retrieve information related to:
 
 * Hakeem policies
-* Pharmacy-related rules
+* Pharmacy rules
 * Ordering policies
 * Customer interaction policies
 * Operational procedures
 * Pharmacy workflow information
-* Other relevant Hakeem documentation
+* Other Hakeem documentation
 
-Instead of relying only on the model's internal knowledge, the agent can retrieve relevant information from the knowledge base before generating a response.
+Instead of relying only on the model's internal knowledge, the agent retrieves relevant information before generating a response.
 
 ### RAG Flow
 
@@ -242,7 +290,7 @@ Generate Response
 
 # 👤 Customer Data Collection
 
-The **Customer Data Collection Agent** manages required customer information.
+The **Customer Data Collection Agent** manages the required customer information.
 
 ### Required Data
 
@@ -327,21 +375,21 @@ This allows the system to:
 
 # 🏪 Multi-Pharmacy Order Processing
 
-Hakeem is designed to communicate with multiple pharmacies when processing an order.
+Hakeem supports order fulfillment across multiple pharmacies.
 
-The system can check product availability across participating pharmacies and determine how the order should be fulfilled.
+The system can check product availability across participating pharmacies and determine how an order should be fulfilled.
 
 ### Multi-Pharmacy Scenario
 
 When a requested product is unavailable in several pharmacies, Hakeem can monitor availability and respond to the customer based on the overall pharmacy network.
 
-For example, when more than five pharmacies report that a product is unavailable, the system can automatically send a notification to the customer when the product becomes available in the majority of pharmacies.
+For example, when more than five pharmacies report that a product is unavailable, the system can automatically notify the customer once the product becomes available in most pharmacies.
 
 The customer can then be informed that:
 
-* The product has become available in most pharmacies
+* The product is available in most pharmacies
 * Part of the order is already available
-* The remaining part of the order is on the way
+* The remaining part of the order is being fulfilled by another pharmacy
 
 ### Availability Workflow
 
@@ -375,9 +423,7 @@ Check Product Availability
 
 # 🚚 Order Tracking & Notifications
 
-Hakeem also handles order status communication.
-
-The system can send automated messages when the order moves through different stages of the fulfillment and delivery process.
+Hakeem handles order status communication throughout the fulfillment process.
 
 ![Order Tracking](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003859.png)
 
@@ -386,8 +432,6 @@ The notification workflow can communicate order status updates to:
 * The customer
 * The pharmacy
 * The delivery/shipping company
-
-This allows the involved parties to remain informed about the current state of the order.
 
 ### Order Notification Flow
 
@@ -416,11 +460,262 @@ Customer Notification
 
 Hakeem can monitor product availability across multiple pharmacies.
 
-![Order Availability Monitoring](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003848.png)
+![Multi-Pharmacy Availability](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20003848.png)
 
-If the requested product is unavailable across multiple pharmacies, the system can monitor the availability status and trigger an automated customer notification once the defined availability condition is reached.
+If the requested product is unavailable across multiple pharmacies, the system can monitor availability and trigger an automated customer notification once the defined availability condition is reached.
 
-This helps the system handle distributed inventory and keep the customer updated without requiring manual follow-up.
+This helps Hakeem handle distributed inventory and keep customers updated without requiring manual follow-up.
+
+---
+
+# 🖥️ Admin Dashboard
+
+Hakeem provides an administrative dashboard for monitoring the overall platform, pharmacies, orders, and sales activity.
+
+## 📊 Platform Statistics
+
+The Admin Dashboard provides an overview of platform activity and key operational metrics.
+
+![Admin Statistics](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20010958.png)
+
+The dashboard can be used to monitor:
+
+* 📞 Calls and customer interactions
+* 📦 Orders
+* 🏪 Pharmacies
+* 📈 Platform activity
+* 📊 Operational statistics
+
+---
+
+## 🏪 Pharmacy Management
+
+Administrators can view and manage registered pharmacies through the dashboard.
+
+![Pharmacy Management](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011122.png)
+
+The pharmacy management interface allows administrators to:
+
+* View registered pharmacies
+* Monitor pharmacy information
+* Review pharmacy activity
+* Add new pharmacies
+* Manage the pharmacy network
+
+---
+
+## 📦 Order Management
+
+Administrators can monitor customer orders from the Admin Dashboard.
+
+![Admin Orders](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011151.png)
+
+The order management interface provides visibility into:
+
+* Customer orders
+* Order status
+* Order processing
+* Order fulfillment
+* Order history
+
+---
+
+## 💊 Most Sold Medicines
+
+Hakeem provides analytics for identifying the most frequently ordered medicines.
+
+![Most Sold Medicines](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011204.png)
+
+This helps administrators understand:
+
+* Most requested medicines
+* Product demand
+* Sales trends
+* Inventory requirements
+
+---
+
+# 🏪 Pharmacy Dashboard
+
+Each pharmacy has its own dashboard for managing incoming orders and fulfilling requested products.
+
+## 📥 Incoming Orders
+
+Pharmacists can view orders assigned to their pharmacy.
+
+![Pharmacy Orders](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011233.png)
+
+The pharmacy interface allows pharmacists to:
+
+* View incoming orders
+* Review requested medicines
+* Check order details
+* Process assigned orders
+* Update order status
+
+---
+
+# 📦 Order Fulfillment
+
+Hakeem supports both **full and partial order fulfillment**.
+
+![Order Fulfillment](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011251.png)
+
+A pharmacy can indicate whether it can fulfill:
+
+* The complete order
+* Only part of the order
+* None of the requested products
+
+This allows Hakeem to dynamically distribute orders across multiple pharmacies.
+
+---
+
+# 🚚 Order Timeline & Delivery
+
+Hakeem maintains an order timeline to track different stages of order processing and delivery.
+
+![Order Timeline](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011305.png)
+
+The timeline allows the pharmacy to:
+
+* Track order progress
+* Update fulfillment status
+* Prepare the order for delivery
+* Send order information to the delivery company
+* Maintain a history of order events
+
+---
+
+# 🔄 Partial Order Fulfillment
+
+One of Hakeem's key capabilities is handling **partial order fulfillment** across multiple pharmacies.
+
+When a pharmacy cannot fulfill the complete order, the available products are processed while the remaining products are redistributed to another pharmacy.
+
+### Partial Fulfillment Flow
+
+```text
+                  CUSTOMER ORDER
+                        │
+                        ▼
+                 Pharmacy A
+                        │
+                ┌───────┴────────┐
+                ▼                ▼
+          Available Items    Unavailable
+                │                │
+                ▼                ▼
+        Partial Fulfillment   Remaining
+                              Items
+                                │
+                                ▼
+                        Find Another Pharmacy
+                                │
+                                ▼
+                           Pharmacy B
+                                │
+                                ▼
+                         New Order Created
+                                │
+                                ▼
+                        Delivery Company
+```
+
+## Partial Fulfillment Process
+
+![Partial Fulfillment 1](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011337.png)
+
+![Partial Fulfillment 2](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011400.png)
+
+![Partial Fulfillment 3](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011410.png)
+
+When a pharmacy can only fulfill part of an order:
+
+1. The pharmacy confirms the available items.
+2. The available items are processed.
+3. The unavailable items remain pending.
+4. Hakeem creates a new order for the remaining items.
+5. Another pharmacy receives the new order.
+6. The second pharmacy fulfills the remaining products.
+7. The new order is sent to the delivery company.
+8. The customer receives the appropriate status updates.
+
+This allows a single customer order to be fulfilled through **multiple pharmacies** without requiring the customer to manually place separate orders.
+
+---
+
+# 🔀 Distributed Order Fulfillment
+
+Hakeem can dynamically distribute a customer's order across multiple pharmacies.
+
+```text
+                         CUSTOMER
+                            │
+                            ▼
+                      Original Order
+                            │
+                            ▼
+                  ┌─────────────────────┐
+                  │   Pharmacy Search   │
+                  └──────────┬──────────┘
+                             │
+                  ┌──────────┴──────────┐
+                  ▼                     ▼
+             Pharmacy A             Pharmacy B
+                  │                     │
+             Available              Available
+                Items                Items
+                  │                     │
+                  └──────────┬──────────┘
+                             ▼
+                     Order Fulfillment
+                             │
+                             ▼
+                     Delivery Company
+                             │
+                             ▼
+                          Customer
+```
+
+This architecture allows Hakeem to handle complex orders where different products are available at different pharmacies.
+
+---
+
+# 🔔 Order Status Communication
+
+The order lifecycle is continuously tracked through the system.
+
+```text
+Order Created
+      │
+      ▼
+Pharmacy Assignment
+      │
+      ▼
+Pharmacy Processing
+      │
+      ├───────────────┐
+      │               │
+      ▼               ▼
+Fully Fulfilled   Partially Fulfilled
+      │               │
+      │               ▼
+      │        Remaining Items
+      │               │
+      │               ▼
+      │        Another Pharmacy
+      │               │
+      │               ▼
+      │          New Order
+      │               │
+      └───────┬───────┘
+              ▼
+       Delivery Company
+              │
+              ▼
+           Customer
+```
 
 ---
 
@@ -471,45 +766,6 @@ n8n is responsible for orchestrating the entire Hakeem workflow.
 * Order status tracking
 * Automated notifications
 * Sending WhatsApp responses
-
----
-
-# 💬 WhatsApp Integration
-
-WhatsApp is the primary communication channel between customers and Hakeem.
-
-```text
-Customer
-   │
-   ▼
-WhatsApp
-   │
-   ▼
-WhatsApp API
-   │
-   ▼
-n8n
-   │
-   ▼
-AI Agents
-   │
-   ▼
-PostgreSQL / RAG
-   │
-   ▼
-Order Processing
-   │
-   ▼
-AI Response
-   │
-   ▼
-WhatsApp
-   │
-   ▼
-Customer
-```
-
-The system supports automated customer communication throughout the ordering lifecycle.
 
 ---
 
@@ -569,7 +825,10 @@ The system supports automated customer communication throughout the ordering lif
                  Order Logic
                        │
                        ▼
-              Order Tracking
+              Order Fulfillment
+                       │
+                       ▼
+                Order Tracking
                        │
                        ▼
                  AI Response
@@ -580,6 +839,47 @@ The system supports automated customer communication throughout the ordering lif
                        ▼
                     CUSTOMER
 ```
+
+---
+
+# 🖥️ Hakeem Platform
+
+Hakeem includes different interfaces for managing the pharmacy ecosystem.
+
+### Admin Interface
+
+The administrator can:
+
+* Monitor platform statistics
+* Manage pharmacies
+* Add new pharmacies
+* Monitor orders
+* Analyze medicine sales
+* Track overall platform activity
+
+### Pharmacy Interface
+
+Pharmacists can:
+
+* View incoming orders
+* Review requested medicines
+* Accept and process orders
+* Fulfill orders partially or completely
+* Track order status
+* Send orders to the delivery company
+* Continue remaining order fulfillment through another pharmacy
+
+---
+
+# 🌐 Website
+
+## Hakeem Web Platform
+
+The Hakeem web platform provides the administrative and pharmacy interfaces used to manage the operational side of the system.
+
+**Website:** Coming Soon
+
+> Add the website URL here when the platform is publicly available.
 
 ---
 
@@ -615,12 +915,55 @@ The system supports automated customer communication throughout the ordering lif
 
 ---
 
-# 🌐 Website
+## 🖥️ Admin Dashboard
 
-> **Hakeem Website:**
-> **Coming Soon**
+### Platform Statistics
 
-<!-- Add the website link here when available -->
+![Admin Statistics](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20010958.png)
+
+### Pharmacy Management
+
+![Pharmacy Management](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011122.png)
+
+### Admin Orders
+
+![Admin Orders](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011151.png)
+
+### Most Sold Medicines
+
+![Most Sold Medicines](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011204.png)
+
+---
+
+## 🏪 Pharmacy Dashboard
+
+### Incoming Orders
+
+![Pharmacy Orders](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011233.png)
+
+### Order Fulfillment
+
+![Order Fulfillment](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011251.png)
+
+### Order Timeline
+
+![Order Timeline](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011305.png)
+
+---
+
+## 🔄 Partial Fulfillment
+
+### Partial Fulfillment 1
+
+![Partial Fulfillment 1](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011337.png)
+
+### Partial Fulfillment 2
+
+![Partial Fulfillment 2](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011400.png)
+
+### Partial Fulfillment 3
+
+![Partial Fulfillment 3](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/Screenshot%202026-08-25%20011410.png)
 
 ---
 
@@ -631,17 +974,8 @@ HAKEEM/
 │
 ├── README.md
 │
-├── Screenshot 2026-08-25 003848.png
-├── Screenshot 2026-08-25 003859.png
-├── Screenshot 2026-08-25 003908.png
-├── Screenshot 2026-08-25 003928.png
-├── Screenshot 2026-08-25 004012.png
-│
-├── 5793933590256095252_121.jpg
-├── 5793933590256095253_121.jpg
-├── 5793933590256095254_121.jpg
-├── 5793933590256095255_121.jpg
-├── 5793933590256095257_121.jpg
+├── images/
+│   └── ...
 │
 ├── workflows/
 │   └── hakeem-workflow.json
@@ -714,6 +1048,7 @@ Hakeem was built to:
 * Connect conversational AI with real business data
 * Automate communication between customers, pharmacies, and delivery services
 * Monitor product availability across multiple pharmacies
+* Support partial and distributed order fulfillment
 * Provide intelligent order tracking and notifications
 * Build a scalable multi-agent automation architecture
 
@@ -724,7 +1059,7 @@ Hakeem was built to:
 * 📦 Advanced order tracking
 * 💳 Payment integration
 * 🧾 Automated invoices
-* 📊 Analytics dashboard
+* 📊 Advanced analytics dashboard
 * 🔔 Advanced automated notifications
 * 🧠 Advanced long-term memory
 * 🏪 Multi-pharmacy expansion
