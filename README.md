@@ -1,4 +1,3 @@
-````markdown
 # 🩺 Hakeem — AI-Powered Pharmacy Ordering Platform
 
 > An AI-powered pharmacy ordering and fulfillment platform that connects customers, AI agents, pharmacies, and delivery companies through an automated workflow.
