@@ -1,5 +1,3 @@
-ي:
-
 ````markdown
 # 🩺 Hakeem — AI-Powered Pharmacy Ordering Platform
 
