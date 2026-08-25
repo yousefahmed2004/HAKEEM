@@ -395,6 +395,11 @@ App.pages = App.pages || {};
      ============================================================ */
   let medQuery = "";
 
+  /* 🆕 عدد الأدوية "التوب" المعروضة — قابل للتغيير بواسطة المستخدم
+     من خلال select في الصفحة، بدل ما كان ثابت على Top 20 */
+  const MED_LIMIT_OPTIONS = [20, 50, 100, 200, 300, 500];
+  let medLimit = 20;
+
   function medicinesHTML() {
     return `
       <div class="page-anim">
@@ -408,8 +413,14 @@ App.pages = App.pages || {};
         </div>
         <div class="card">
           <div class="card-head">
-            <div class="card-title">${icon("pill", 20)} <span id="med-title">Top 20 — الأدوية الأكثر طلبًا</span></div>
-            <span class="badge badge-info" id="med-count"></span>
+            <div class="card-title">${icon("pill", 20)} <span id="med-title">Top ${medLimit} — الأدوية الأكثر طلبًا</span></div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <span class="badge badge-info" id="med-count"></span>
+              <select class="input" id="med-limit" style="width:auto;padding:8px 12px" title="عدد الأدوية المعروضة">
+                ${MED_LIMIT_OPTIONS.map((n) => `<option value="${n}" ${n === medLimit ? "selected" : ""}>Top ${n}</option>`).join("")}
+                <option value="all" ${medLimit === "all" ? "selected" : ""}>كل الأدوية</option>
+              </select>
+            </div>
           </div>
           <div id="med-list"></div>
         </div>
@@ -420,8 +431,12 @@ App.pages = App.pages || {};
     const all = S().medicineStats();
     const totalOrders = S().stats().total || 1;
     const q = medQuery.trim().toLowerCase();
-    const list = q ? all.filter((m) => m.name.toLowerCase().includes(q)) : all.slice(0, 20);
-    document.getElementById("med-title").textContent = q ? `نتائج البحث عن «${medQuery.trim()}»` : "Top 20 — الأدوية الأكثر طلبًا";
+    const list = q
+      ? all.filter((m) => m.name.toLowerCase().includes(q))
+      : (medLimit === "all" ? all : all.slice(0, medLimit));
+    document.getElementById("med-title").textContent = q
+      ? `نتائج البحث عن «${medQuery.trim()}»`
+      : (medLimit === "all" ? "كل الأدوية — الأكثر طلبًا" : `Top ${medLimit} — الأدوية الأكثر طلبًا`);
     document.getElementById("med-count").textContent = `${list.length} صنف — من ${all.length} إجمالًا`;
 
     const target = document.getElementById("med-list");
@@ -447,15 +462,23 @@ App.pages = App.pages || {};
 
   App.pages.medicines = {
     title: "الأدوية الأكثر طلبًا",
-    crumb: "Top 20 وتحليل الطلب على الأدوية",
+    crumb: "تحليل الطلب على الأدوية",
     render: medicinesHTML,
     mount() {
       renderMedList();
+
       document.getElementById("med-search").addEventListener("input", (e) => {
         medQuery = e.target.value;
         renderMedList();
         const inp = document.getElementById("med-search");
         inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length);
+      });
+
+      /* 🆕 ربط select اختيار عدد الأدوية التوب المعروضة */
+      document.getElementById("med-limit").addEventListener("change", (e) => {
+        const v = e.target.value;
+        medLimit = v === "all" ? "all" : Number(v);
+        renderMedList();
       });
     },
   };
