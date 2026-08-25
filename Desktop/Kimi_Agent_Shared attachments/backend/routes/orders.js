@@ -350,7 +350,62 @@ function formatOrderRow(order) {
         childDeadline: (order.parentOrderId && normalizedStatus === "pending")
             ? new Date(new Date(createdAtIso).getTime() + CHILD_ORDER_TIMEOUT_MINUTES * 60000).toISOString()
             : null,
+        // 🆕🆕 (تعديل) pendingChildOrderId / pendingChildDeadline — بيتم
+        // ملؤهم لاحقًا (بعد formatOrderRow) عن طريق getPendingChildMap()
+        // لأن حسابهم محتاج query منفصل على قاعدة البيانات (مش متاح جوه
+        // الـ row نفسه). بنسيبهم null هنا كقيمة افتراضية.
+        pendingChildOrderId: null,
+        pendingChildDeadline: null,
     };
+}
+
+/* ============================================================
+    🆕🆕 getPendingChildMap — الحقلين اللي كان الفرونت (pages1.js)
+    بيستناهم على الطلب "الأب" (اللي اتعمله تنفيذ جزئي) عشان يعرض
+    عدّاد تنازلي لمتابعة مهلة الطلب "الابن" (المكمل) الناتج عنه —
+    كانوا مفقودين بالكامل من الباك إند، وده سبب إن العدّاد ما كانش
+    بيظهر عند الصيدلية اللي عملت التنفيذ الجزئي (فقط عند الصيدليات
+    اللي لسه بتشوف الطلب الابن نفسه في الـ pool، عن طريق childDeadline).
+    ------------------------------------------------------------
+    بتاخد قائمة orderIds (اللي هتترجع للفرونت في نفس الطلب)، وتدوّر
+    في جدول orders عن أي طلب "ابن" لسه "pending" وparentOrderId بتاعه
+    موجود ضمن القائمة دي. لكل ابن زي ده، بنحسب deadline بنفس منطق
+    childDeadline بالظبط (createdAt + CHILD_ORDER_TIMEOUT_MINUTES)،
+    ونرجّع map: { <parentOrderId>: { pendingChildOrderId, pendingChildDeadline } }
+    ============================================================ */
+async function getPendingChildMap(orderIds) {
+    if (!Array.isArray(orderIds) || !orderIds.length) return {};
+
+    const rows = await db.all(
+        `SELECT id, "parentOrderId", "createdAt"
+         FROM orders
+         WHERE status = 'pending'
+           AND "parentOrderId" = ANY($1::text[])`,
+        [orderIds.map((id) => String(id))]
+    );
+
+    const map = {};
+    for (const row of rows) {
+        const createdAtIso = row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString();
+        map[String(row.parentOrderId)] = {
+            pendingChildOrderId: String(row.id),
+            pendingChildDeadline: new Date(new Date(createdAtIso).getTime() + CHILD_ORDER_TIMEOUT_MINUTES * 60000).toISOString(),
+        };
+    }
+    return map;
+}
+
+/* 🆕 attachPendingChildInfo — بتلحق pendingChildOrderId/pendingChildDeadline
+   على مصفوفة (أو عنصر واحد) من formattedOrders، باستخدام map جاهز من
+   getPendingChildMap. مفصولة كده عشان تتستخدم في GET /orders (list) و
+   GET /orders/:id (single) من غير تكرار كود */
+function attachPendingChildInfo(formattedOrders, pendingChildMap) {
+    for (const o of formattedOrders) {
+        const pc = pendingChildMap[String(o.id)];
+        o.pendingChildOrderId = pc ? pc.pendingChildOrderId : null;
+        o.pendingChildDeadline = pc ? pc.pendingChildDeadline : null;
+    }
+    return formattedOrders;
 }
 
 async function getChainOrders(rootOrderId) {
@@ -720,6 +775,14 @@ router.get("/orders", async (req, res) => {
 
         const formattedOrders = rows.map(formatOrderRow);
 
+        // 🆕 إلحاق pendingChildOrderId / pendingChildDeadline على أي طلب
+        // "أب" عنده طلب "ابن" لسه pending — عشان يبان عدّاد المهلة عند
+        // الصيدلية اللي عملت التنفيذ الجزئي (وعند الأدمن) برضو، مش بس
+        // عند الصيادلة اللي بتشوف الطلب الابن في الـ pool.
+        const orderIds = formattedOrders.map((o) => o.id);
+        const pendingChildMap = await getPendingChildMap(orderIds);
+        attachPendingChildInfo(formattedOrders, pendingChildMap);
+
         res.json({ ok: true, orders: formattedOrders });
     } catch (err) {
         console.error("❌ خطأ في جلب الطلبات:", err.message);
@@ -776,6 +839,12 @@ router.get("/orders/:id", async (req, res) => {
                 { at: order.createdAt || order.created_at || new Date().toISOString(), text: "تم استلام الطلب من الشات بوت", color: "#0ea5e9" }
             ],
         };
+
+        // 🆕 نفس منطق pendingChildOrderId/pendingChildDeadline لصفحة
+        // تفاصيل الطلب المفرد — عشان يبان بانر العدّاد لو الطلب ده هو
+        // اللي عليه طلب "ابن" pending ناتج عن تنفيذ جزئي سابق.
+        const pendingChildMap = await getPendingChildMap([formattedOrder.id]);
+        attachPendingChildInfo([formattedOrder], pendingChildMap);
 
         res.json({ ok: true, order: formattedOrder });
     } catch (err) {
