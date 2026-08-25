@@ -1116,6 +1116,27 @@ A typical customer interaction follows this pipeline:
 
 ---
 
+
+# 💬 WhatsApp AI Assistant
+
+Hakeem uses **WhatsApp as the main customer communication channel**, allowing customers to interact with the platform naturally and place pharmacy orders through conversation.
+
+The WhatsApp assistant is connected to the AI agents, n8n workflows, PostgreSQL database, and RAG system.
+
+### 📱 WhatsApp Customer Interaction
+
+The customer can start a conversation through WhatsApp, provide their information, request medicines, and receive order updates directly through the chat.
+
+![WhatsApp Chat 1](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095252_121.jpg)
+
+![WhatsApp Chat 2](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095253_121.jpg)
+
+![WhatsApp Chat 3](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095254_121.jpg)
+
+![WhatsApp Chat 4](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095255_121.jpg)
+
+![WhatsApp Chat 5](https://raw.githubusercontent.com/yousefahmed2004/HAKEEM/main/5793933590256095257_121.jpg)
+
 # 🌐 Website
 
 ## Hakeem Web Platform
