@@ -452,6 +452,74 @@ App.pages = App.pages || {};
   ];
 
   /* ============================================================
+     🆕 عدّاد تنازلي حي لمهلة الطلب "الفرعي" (childDeadline)
+     ------------------------------------------------------------
+     الباك إند (formatOrderRow في orders.js) بيرجع childDeadline لأي
+     طلب فرعي (parentOrderId موجود) لسه "pending" — وهو الميعاد اللي
+     هيتقفل عنده تلقائيًا كـ"نفاد من السوق" لو محدش اتفاعل معاه.
+     الدوال دي بتشغّل عدّاد hh:mm:ss حي جوه صفحة تفاصيل الطلب فقط،
+     وبتوقف نفسها أوتوماتيك لو المستخدم غيّر الصفحة أو انتهت المهلة.
+     ============================================================ */
+  let _countdownInterval = null;
+
+  function stopCountdownTicker() {
+    if (_countdownInterval) {
+      clearInterval(_countdownInterval);
+      _countdownInterval = null;
+    }
+  }
+
+  function formatCountdown(ms) {
+    if (ms <= 0) return "00:00";
+    const totalSeconds = Math.floor(ms / 1000);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    const mm = String(m).padStart(2, "0");
+    const ss = String(s).padStart(2, "0");
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
+  function startCountdownTicker(orderParam) {
+    stopCountdownTicker();
+    const el = document.getElementById("child-countdown-timer");
+    if (!el || !el.dataset.deadline) return;
+    const deadline = new Date(el.dataset.deadline).getTime();
+    const expectedHash = "#/orders/" + orderParam;
+
+    const tick = () => {
+      // لو المستخدم سايب صفحة الطلب ده، وقف العدّاد فورًا
+      if (location.hash !== expectedHash) { stopCountdownTicker(); return; }
+
+      const liveEl = document.getElementById("child-countdown-timer");
+      if (!liveEl) { stopCountdownTicker(); return; }
+
+      const remaining = deadline - Date.now();
+      liveEl.textContent = formatCountdown(remaining);
+
+      if (remaining <= 0) {
+        liveEl.textContent = "00:00";
+        liveEl.style.color = "#dc2626";
+        const card = document.getElementById("child-countdown-card");
+        if (card) {
+          const sub = card.querySelector("[data-countdown-sub]");
+          if (sub) sub.textContent = "انتهت المهلة — جاري إغلاق الطلب تلقائيًا كـ«نفاد من السوق»...";
+        }
+        stopCountdownTicker();
+        // نرفريش الصفحة بعد شوية عشان تتزامن الحالة الحقيقية من الباك إند
+        setTimeout(() => { if (location.hash === expectedHash) App.router.refresh(); }, 4000);
+        return;
+      }
+
+      if (remaining < 60000) liveEl.style.color = "#dc2626";
+      else if (remaining < 3 * 60000) liveEl.style.color = "#d97706";
+    };
+
+    tick();
+    _countdownInterval = setInterval(tick, 1000);
+  }
+
+  /* ============================================================
      🆕 chainBlockMessage(chainStatus) — رسالة واضحة للصيدلي تشرح
      ليه زرار "خرج للتوصيل" متعطّل دلوقتي بسبب سلسلة تنفيذ جزئي.
      ------------------------------------------------------------
@@ -553,6 +621,23 @@ App.pages = App.pages || {};
       ? `<div class="small muted" style="margin-top:4px">${icon("split", 13)} أصناف ناقصة أُعيد طرحها من الطلب <a href="#/orders/${esc(o.parentOrderId)}" style="color:var(--sky-700);font-weight:700">#${esc(o.parentOrderId)}</a></div>`
       : "";
 
+    /* 🆕🆕 بانر العدّاد التنازلي — بيظهر بس للطلبات "الفرعية" اللي لسه
+       "pending" وعندها childDeadline راجع من الباك إند (formatOrderRow).
+       العدّاد نفسه بيتشغّل جوه mount() عبر startCountdownTicker(). */
+    const countdownHTML = (o.parentOrderId && o.status === "pending" && o.childDeadline)
+      ? `
+        <div class="card" id="child-countdown-card" style="margin-bottom:20px;border:1.5px solid #fde68a;background:linear-gradient(135deg,#fffbeb,#fff)">
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <div style="flex-shrink:0;color:#d97706">${icon("timer", 22)}</div>
+            <div style="flex:1;min-width:220px">
+              <div class="bold" style="font-size:14.5px;margin-bottom:3px">مهلة الطلب قبل إغلاقه تلقائيًا</div>
+              <div class="small muted" data-countdown-sub>لو محدش قبل الطلب أو نفّذ جزء منه خلال المهلة، هيتقفل تلقائيًا كـ«نفاد من السوق» ويتبلّغ العميل</div>
+            </div>
+            <div id="child-countdown-timer" class="bold" style="font-size:24px;color:#d97706;font-variant-numeric:tabular-nums;min-width:80px;text-align:center" data-deadline="${esc(o.childDeadline)}">--:--</div>
+          </div>
+        </div>`
+      : "";
+
     /* 🆕 بيانات زرار الـ workflow + حالة السلسلة (لعرض بانر تحذيري لو
        "خرج للتوصيل" هي الخطوة الجاية ومحجوبة بسبب صيدلية تانية) */
     const workflowBtns = canManageWorkflow ? renderWorkflowButtons(o) : { html: "", chainStatus: { blocked: false } };
@@ -587,6 +672,8 @@ App.pages = App.pages || {};
           </div>
           ${statusBadge(o.status)}
         </div>
+
+        ${countdownHTML}
 
         ${canAct ? `
         <div class="card" style="margin-bottom:20px;border:1.5px solid var(--sky-100);background:linear-gradient(135deg,var(--sky-50),#fff)">
@@ -849,7 +936,15 @@ App.pages = App.pages || {};
     },
     mount(user, param) {
       const o = S().getOrder(param);
-      if (!o) return;
+      if (!o) { stopCountdownTicker(); return; }
+
+      /* 🆕 تشغيل العدّاد التنازلي لو الطلب "فرعي" ولسه "pending" وعنده
+         childDeadline — وإلا نوقف أي عدّاد قديم شغّال من صفحة سابقة */
+      if (o.parentOrderId && o.status === "pending" && o.childDeadline) {
+        startCountdownTicker(param);
+      } else {
+        stopCountdownTicker();
+      }
 
       /* ============================================================
          🆕 جلب التايملاين الحقيقي فور فتح صفحة التفاصيل
