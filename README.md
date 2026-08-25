@@ -1149,8 +1149,6 @@ The Hakeem web platform provides the administrative and pharmacy interfaces used
 
 ---
 
-```
-
 ---
 
 # 🎯 Project Goals
