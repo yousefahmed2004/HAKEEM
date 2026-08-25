@@ -25,6 +25,15 @@ async function generateUniqueOrderId(queryRunner) {
 
 const SHORTAGE_THRESHOLD = Number(process.env.SHORTAGE_THRESHOLD || 5);
 
+/* ============================================================
+    🆕 CHILD_ORDER_TIMEOUT_MINUTES — مهلة الطلب "الفرعي" (الناتج عن
+    تنفيذ جزئي سابق) قبل ما يتقفل تلقائيًا كـ "نفاد من السوق" لو مفيش
+    أي صيدلية اتفاعلت معاه خالص (لا قبول، لا تنفيذ جزئي، لا اعتذار).
+    بتتحسب من لحظة إنشاء الطلب الفرعي نفسه (createdAt) — وهي بالظبط
+    لحظة ما الصيدلي الأول عمل "تنفيذ جزئي" على الطلب الأصلي.
+    ============================================================ */
+const CHILD_ORDER_TIMEOUT_MINUTES = Number(process.env.CHILD_ORDER_TIMEOUT_MINUTES || 15);
+
 const N8N_SHORTAGE_WEBHOOK_URL =
     process.env.N8N_SHORTAGE_WEBHOOK_URL ||
     "https://hakeem-n8n.62wz9l.easypanel.host/webhook/SHORTAGE";
@@ -257,6 +266,16 @@ async function retryPendingShippingWebhooks() {
 
 const STALE_PENDING_MINUTES = Number(process.env.STALE_PENDING_MINUTES || 30);
 
+/* ============================================================
+    🛠️ (تعديل) expireStalePendingOrders
+    ------------------------------------------------------------
+    بتاخد أي طلب "pending" عدّى عليه STALE_PENDING_MINUTES وترفضه
+    تلقائيًا. لازم تستثني الطلبات "الفرعية" (parentOrderId IS NOT
+    NULL) من هنا خالص — دي لها مسار خاص ومختلف تمامًا (شوف
+    expireStaleChildOrders تحت): مش بترفض عادي، لازم تتقفل كـ
+    "نفاد من السوق" (market_unavailable) بنفس منطق الـ 5 صيدليات،
+    وتفك قفل أي صيدلية عملت تنفيذ جزئي على الطلب الأصلي.
+    ============================================================ */
 async function expireStalePendingOrders() {
     try {
         const expired = await db.all(`
@@ -264,6 +283,7 @@ async function expireStalePendingOrders() {
             SET status = 'rejected',
                 "updatedAt" = NOW()
             WHERE status = 'pending'
+              AND "parentOrderId" IS NULL
               AND "createdAt" < NOW() - INTERVAL '${STALE_PENDING_MINUTES} minutes'
             RETURNING id
         `);
@@ -357,6 +377,155 @@ async function buildUnavailableMessage(rootOrderId, itemLabels) {
     if (hasProgress) lines.push("باقي طلبك في الطريق إليك 🚚");
     lines.push("شكرًا لتفهمك 💙");
     return lines.join("\n");
+}
+
+/* ============================================================
+    🆕🆕 resolveChainAsMarketUnavailable — منطق موحّد لإغلاق طلب
+    "فرعي" (ناتج عن تنفيذ جزئي) كـ "نفاد من السوق"، بغض النظر عن
+    السبب اللي أدّى لده. مستخدَمة في مسارين:
+    1) /orders/:id/unavailable — لما توصل 5 صيدليات مختلفة لاعتذار
+       صريح عن نفس الطلب الفرعي.
+    2) expireStaleChildOrders (تحت) — لما يعدّي CHILD_ORDER_TIMEOUT_
+       MINUTES دقيقة على الطلب الفرعي من غير أي إجراء عليه خالص
+       (لا قبول، لا تنفيذ جزئي، لا اعتذار من أي صيدلية).
+    ------------------------------------------------------------
+    بتقفل الطلب الفرعي (market_unavailable)، وتفحص باقي السلسلة:
+    لو محدش لسه "pending"، بترقّي أي طرف "partial" عالق لـ
+    "accepted" (بالظبط زي ما كان بيحصل قبل كده) عشان ياخد صلاحية
+    كاملة يكمل الـ workflow ويبعت الطلب لشركة الشحن.
+    ------------------------------------------------------------
+    ⚠️ لازم تتنادى من جوه db.withTransaction (باستخدام tx، مش db
+    مباشرة) عشان تفضل atomic مع أي تحديثات تانية بتحصل في نفس اللحظة.
+    ============================================================ */
+async function resolveChainAsMarketUnavailable(tx, order, timelineReason) {
+    const rootOrderId = order.rootOrderId || order.id;
+
+    await tx.run(
+        `UPDATE orders SET status = 'market_unavailable', "updatedAt" = NOW() WHERE id = $1`,
+        [order.id]
+    );
+
+    await tx.run(
+        `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+        [order.id, `تم إغلاق الطلب نهائيًا — ${timelineReason}، وتم إبلاغ العميل`, "#dc2626"]
+    );
+
+    const chainAfter = await tx.all(
+        `SELECT * FROM orders WHERE id = $1 OR "rootOrderId" = $1`,
+        [rootOrderId]
+    );
+    const stillUnresolved = chainAfter.some(
+        (o) => String(o.id) !== String(order.id) && normalizeStatus(o.status) === "pending"
+    );
+
+    const unblockedLegIds = [];
+    let shouldRetryShipping = false;
+
+    if (!stillUnresolved) {
+        shouldRetryShipping = true;
+
+        // ترقية أي طرف "partial" عالق في السلسلة لـ "accepted" — نفس
+        // منطق الـ 5 صيدليات بالظبط، سواء الإغلاق حصل بسبب الاعتذارات
+        // أو بسبب انتهاء المهلة.
+        const partialLegsToPromote = chainAfter.filter((o) =>
+            String(o.id) !== String(order.id) &&
+            o.pharmacyId &&
+            normalizeStatus(o.status) === "partial"
+        );
+        for (const leg of partialLegsToPromote) {
+            await tx.run(`UPDATE orders SET status = 'accepted', "updatedAt" = NOW() WHERE id = $1`, [leg.id]);
+        }
+        const promotedIds = new Set(partialLegsToPromote.map((p) => String(p.id)));
+
+        const legsToNotify = chainAfter.filter((o) =>
+            String(o.id) !== String(order.id) &&
+            o.pharmacyId &&
+            (["accepted", "closed"].includes(normalizeStatus(o.status)) || promotedIds.has(String(o.id))) &&
+            !["out_for_delivery", "delivered", "cancelled"].includes(o.workflowStatus)
+        );
+        for (const leg of legsToNotify) {
+            unblockedLegIds.push(leg.id);
+            const noteText = promotedIds.has(String(leg.id))
+                ? "تعذّر توفير باقي أصناف الطلب من أي صيدلية أخرى في السوق — تم تحويل تنفيذك الجزئي إلى طلب مقبول بالكامل، ويمكنك الآن متابعة الطلب وإرساله لشركة الشحن مباشرة"
+                : "تعذّر توفير باقي أصناف الطلب من أي صيدلية أخرى في السوق — يمكنك الآن إرسال الطلب لشركة الشحن مباشرة";
+            await tx.run(
+                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [leg.id, noteText, "#0ea5e9"]
+            );
+        }
+    }
+
+    return { rootOrderId, unblockedLegIds, shouldRetryShipping };
+}
+
+/* ============================================================
+    🆕🆕 expireStaleChildOrders — بتدوّر على الطلبات "الفرعية"
+    (parentOrderId IS NOT NULL) اللي لسه "pending" وعدّى عليها
+    CHILD_ORDER_TIMEOUT_MINUTES دقيقة من غير أي إجراء (يعني ولا
+    صيدلية اتفاعلت معاها خالص: لا قبلتها، لا عملت تنفيذ جزئي عليها،
+    لا اعتذرت عنها). بتقفلها بنفس منطق "نفاد من السوق" اللي بيحصل
+    لما 5 صيدليات مختلفة تعتذر، وتبعت نفس رسالة العميل بالظبط.
+    ============================================================ */
+async function expireStaleChildOrders() {
+    try {
+        const staleChildren = await db.all(`
+            SELECT id FROM orders
+            WHERE status = 'pending'
+              AND "parentOrderId" IS NOT NULL
+              AND "createdAt" < NOW() - INTERVAL '${CHILD_ORDER_TIMEOUT_MINUTES} minutes'
+        `);
+
+        for (const row of staleChildren) {
+            try {
+                const txResult = await db.withTransaction(async (tx) => {
+                    // إعادة القراءة FOR UPDATE جوه الترانزاكشن، عشان لو
+                    // صيدلية عملت إجراء عليه في نفس اللحظة (race condition)
+                    // نتجاهله بدل ما نقفله غلط.
+                    const order = await tx.get(`SELECT * FROM orders WHERE id = $1 FOR UPDATE`, [row.id]);
+                    if (!order || normalizeStatus(order.status) !== "pending") {
+                        return null;
+                    }
+
+                    const result = await resolveChainAsMarketUnavailable(
+                        tx, order, `مرت ${CHILD_ORDER_TIMEOUT_MINUTES} دقيقة بدون أي إجراء عليه`
+                    );
+
+                    const items = resolveItems({ items: order.items, rawItems: order.items });
+                    return { order, items, ...result };
+                });
+
+                if (!txResult) continue;
+
+                const itemLabels = txResult.items.map((it) => (it.unit ? `${it.unit} ${it.name}` : it.name)).filter(Boolean);
+                const message = await buildUnavailableMessage(txResult.rootOrderId, itemLabels);
+
+                sendN8nWebhook(N8N_SHORTAGE_WEBHOOK_URL, {
+                    type: "order_market_unavailable",
+                    order_id: String(row.id),
+                    root_order_id: String(txResult.rootOrderId),
+                    phone: txResult.order.phone,
+                    customer_name: txResult.order.customerName,
+                    medicines: itemLabels,
+                    message,
+                }).then((r) => {
+                    if (!r.ok) console.error(`[Shortage Webhook ✗] فشل إبلاغ العميل بانتهاء مهلة الطلب #${row.id}:`, r.error || r.body);
+                    else console.log(`[Shortage Webhook ✓] تم إبلاغ العميل بانتهاء مهلة الطلب #${row.id} (${itemLabels.join("، ")})`);
+                });
+
+                if (txResult.shouldRetryShipping) {
+                    trySendCombinedShippingWebhook(txResult.rootOrderId).catch((e) => {
+                        console.error("❌ خطأ في إرسال الشحن بعد انتهاء مهلة طلب فرعي:", e.message);
+                    });
+                }
+
+                console.log(`⏱️ انتهت مهلة ${CHILD_ORDER_TIMEOUT_MINUTES} دقيقة للطلب الفرعي #${row.id} — تم إغلاقه كـ "نفاد من السوق"`);
+            } catch (innerErr) {
+                console.error(`❌ خطأ في معالجة انتهاء مهلة الطلب الفرعي #${row.id}:`, innerErr.message);
+            }
+        }
+    } catch (err) {
+        console.error("❌ خطأ في expireStaleChildOrders:", err.message);
+    }
 }
 
 /* ============================================================
@@ -499,6 +668,7 @@ router.get("/orders", async (req, res) => {
     try {
         await expireOverdueOrders();
         await expireStalePendingOrders();
+        await expireStaleChildOrders();
         retryPendingShippingWebhooks().catch(() => {}); // لا ننتظرها — لا يجب أن تؤخر رد القائمة
 
         const { status } = req.query;
@@ -544,6 +714,7 @@ router.get("/orders/:id", async (req, res) => {
     try {
         await expireOverdueOrders();
         await expireStalePendingOrders();
+        await expireStaleChildOrders();
 
         const { id } = req.params;
         const query = `
@@ -961,6 +1132,11 @@ router.post("/orders/:id/partial", async (req, res) => {
 
 /* ============================================================
     الإبلاغ عن عدم توفر طلب "فرعي" (ناتج عن تنفيذ جزئي سابق) في السوق
+    ------------------------------------------------------------
+    🛠️ (تعديل) الكتلة الطويلة اللي كانت بترقّي الأطراف partial
+    وتنبّه الـ legs بقت مستخرَجة في resolveChainAsMarketUnavailable
+    (فوق) عشان تتشارك مع expireStaleChildOrders. السلوك هنا لسه
+    مطابق 100% للي كان قبل كده.
     ============================================================ */
 router.post("/orders/:id/unavailable", async (req, res) => {
     try {
@@ -1039,73 +1215,11 @@ router.post("/orders/:id/unavailable", async (req, res) => {
             let shouldRetryShipping = false;
 
             if (reachedThreshold) {
-                await tx.run(
-                    `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
-                    [id, `تم إغلاق الطلب نهائيًا — اعتذرت ${SHORTAGE_THRESHOLD} صيدليات مختلفة عن توفره، وتم إبلاغ العميل`, "#dc2626"]
+                const result = await resolveChainAsMarketUnavailable(
+                    tx, order, `اعتذرت ${SHORTAGE_THRESHOLD} صيدليات مختلفة عن توفره`
                 );
-
-                const chainAfter = await tx.all(
-                    `SELECT * FROM orders WHERE id = $1 OR "rootOrderId" = $1`,
-                    [rootOrderId]
-                );
-                const stillUnresolved = chainAfter.some(
-                    (o) => String(o.id) !== String(id) && normalizeStatus(o.status) === "pending"
-                );
-
-                if (!stillUnresolved) {
-                    shouldRetryShipping = true;
-
-                    /* ============================================================
-                       🆕🆕 ترقية الأطراف "partial" العالقة إلى "accepted"
-                       ------------------------------------------------------------
-                       المشكلة: لو صيدلية عملت تنفيذ جزئي (status = "partial")
-                       والأصناف الناقصة اتأكد نفاد توفيرها من السوق بالكامل (كل
-                       الـ 5 صيدليات اعتذرت عن الطلب الفرعي)، فمفيش أي صيدلية
-                       تانية هتكمّل باقي الطلب. الصيدلية دي كانت هتفضل عالقة على
-                       status = "partial" اللي أصلاً معندهاش أي زرار workflow
-                       (شوف canManageWorkflow في pages1.js + الحماية 409 في
-                       PUT /orders/:id فوق) — يعني معندهاش أي وسيلة تبعت الطلب
-                       لشركة الشحن.
-
-                       الحل: أي طرف "partial" في السلسلة (غير الطلب الفرعي ده
-                       نفسه) بيترقّى هنا لـ "accepted" — بكده بياخد نفس صلاحيات
-                       أي طلب مقبول بالكامل عادي: تفاصيله تظهر مع Active Orders،
-                       ويقدر يكمل خطوة بخطوة لحد "خرج للتوصيل"، وبعدين
-                       trySendCombinedShippingWebhook هيتعامل معاه تلقائيًا
-                       كـ terminal leg زي أي طرف accepted تاني.
-                       ============================================================ */
-                    const partialLegsToPromote = chainAfter.filter((o) =>
-                        String(o.id) !== String(id) &&
-                        o.pharmacyId &&
-                        normalizeStatus(o.status) === "partial"
-                    );
-                    for (const leg of partialLegsToPromote) {
-                        await tx.run(
-                            `UPDATE orders SET status = 'accepted', "updatedAt" = NOW() WHERE id = $1`,
-                            [leg.id]
-                        );
-                    }
-                    const promotedIds = new Set(partialLegsToPromote.map((p) => String(p.id)));
-
-                    // 🆕 بنبلّغ الأطراف "الطرفية" الأصلية (accepted/closed) + الأطراف
-                    // الـ partial اللي اترقّت لتوها لـ accepted (بقى عندهم تحكم كامل)
-                    const legsToNotify = chainAfter.filter((o) =>
-                        String(o.id) !== String(id) &&
-                        o.pharmacyId &&
-                        (["accepted", "closed"].includes(normalizeStatus(o.status)) || promotedIds.has(String(o.id))) &&
-                        !["out_for_delivery", "delivered", "cancelled"].includes(o.workflowStatus)
-                    );
-                    for (const leg of legsToNotify) {
-                        unblockedLegIds.push(leg.id);
-                        const noteText = promotedIds.has(String(leg.id))
-                            ? "تعذّر توفير باقي أصناف الطلب من أي صيدلية أخرى في السوق — تم تحويل تنفيذك الجزئي إلى طلب مقبول بالكامل، ويمكنك الآن متابعة الطلب وإرساله لشركة الشحن مباشرة"
-                            : "تعذّر توفير باقي أصناف الطلب من أي صيدلية أخرى في السوق — يمكنك الآن إرسال الطلب لشركة الشحن مباشرة";
-                        await tx.run(
-                            `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
-                            [leg.id, noteText, "#0ea5e9"]
-                        );
-                    }
-                }
+                unblockedLegIds = result.unblockedLegIds;
+                shouldRetryShipping = result.shouldRetryShipping;
             } else if (newStatus === "rejected") {
                 await tx.run(
                     `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
@@ -1213,6 +1327,7 @@ router.get("/orders-stats", async (req, res) => {
     try {
         await expireOverdueOrders();
         await expireStalePendingOrders();
+        await expireStaleChildOrders();
 
         const stats = await db.get(`
             SELECT 
