@@ -28,6 +28,49 @@ App.pages = App.pages || {};
   }
 
   /* ============================================================
+     🆕 عدّاد تنازلي عام (Global Countdown Ticker)
+     ------------------------------------------------------------
+     أي عنصر في أي صفحة عليه data-countdown-deadline="<ISO date>"
+     بيتحدّث تلقائيًا كل ثانية بمهلة hh:mm:ss متبقية. مصمم عشان
+     يشتغل مع كذا عنصر في نفس الوقت (كروت في ليست، صفوف في جدول،
+     أو كارت مفصّل في صفحة التفاصيل) من غير ما نحتاج نعمل setInterval
+     منفصل لكل صفحة. بيتشغّل مرة واحدة بس طول عمر التطبيق (idempotent)
+     وبيفضل شغّال طول ما فيه أي عنصر بهذا الـ attribute في الـ DOM —
+     لو مفيش، مبيعملش حاجة (querySelectorAll بترجع فاضية بسرعة).
+     ============================================================ */
+  let _globalCountdownStarted = false;
+
+  function formatCountdown(ms) {
+    if (ms <= 0) return "00:00";
+    const totalSeconds = Math.floor(ms / 1000);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    const mm = String(m).padStart(2, "0");
+    const ss = String(s).padStart(2, "0");
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
+  function tickAllCountdowns() {
+    document.querySelectorAll("[data-countdown-deadline]").forEach((el) => {
+      const deadline = new Date(el.dataset.countdownDeadline).getTime();
+      if (!deadline || Number.isNaN(deadline)) return;
+      const remaining = deadline - Date.now();
+      el.textContent = formatCountdown(remaining);
+      if (remaining <= 0) el.style.color = "#dc2626";
+      else if (remaining < 60000) el.style.color = "#dc2626";
+      else if (remaining < 3 * 60000) el.style.color = "#d97706";
+    });
+  }
+
+  function ensureGlobalCountdownTicker() {
+    if (_globalCountdownStarted) return;
+    _globalCountdownStarted = true;
+    tickAllCountdowns();
+    setInterval(tickAllCountdowns, 1000);
+  }
+
+  /* ============================================================
      مكونات مشتركة
      ============================================================ */
   function orderCard(o, { showPharmacy = true, showPhone = false } = {}) {
@@ -42,10 +85,23 @@ App.pages = App.pages || {};
     const splitBadge = o.parentOrderId
       ? `<span class="badge badge-info" style="margin-inline-start:6px;font-size:11px" title="أصناف ناقصة من طلب سابق">${icon("split", 11)} مكمل #${esc(o.parentOrderId)}</span>`
       : "";
+    /* 🆕 عدّاد تنازلي مصغّر داخل الكارت — بيبان لكل الصيادلة اللي بتشوف
+       الطلب "الابن" (الفرعي) في الليست/الـ pool وهو لسه معلّق (pending)،
+       عشان أي صيدلي يقدر يشوف مهلة الإغلاق التلقائي من غير ما يفتح
+       تفاصيل الطلب أصلاً */
+    const childCountdownBadge = (o.parentOrderId && o.status === "pending" && o.childDeadline)
+      ? `<span class="badge" style="margin-inline-start:6px;font-size:11px;background:#fef3c7;color:#92400e;font-weight:800" title="مهلة قبل الإغلاق التلقائي كنفاد من السوق">${icon("timer", 11)} <span data-countdown-deadline="${esc(o.childDeadline)}">--:--</span></span>`
+      : "";
+    /* 🆕 عدّاد تنازلي للطلب "الأب" (اللي اتعمله تنفيذ جزئي) — بيبان
+       عند الصيدلية اللي عملت التنفيذ الجزئي في الأول أصلاً، عشان
+       تتابع مهلة الطلب المكمل (الابن) من غير ما تدخل تفتحه بنفسها */
+    const pendingChildBadge = o.pendingChildDeadline
+      ? `<span class="badge" style="margin-inline-start:6px;font-size:11px;background:#e0f2fe;color:#0369a1;font-weight:800" title="مهلة الطلب المكمل #${esc(o.pendingChildOrderId)} قبل إغلاقه تلقائيًا">${icon("timer", 11)} مكمل #${esc(o.pendingChildOrderId)}: <span data-countdown-deadline="${esc(o.pendingChildDeadline)}">--:--</span></span>`
+      : "";
     return `
       <div class="order-card" style="--oc:${st.color}" data-order="${o.id}">
         <div class="oc-head">
-          <span class="oc-id">#${esc(o.id)}${splitBadge}</span>
+          <span class="oc-id">#${esc(o.id)}${splitBadge}${childCountdownBadge}${pendingChildBadge}</span>
           ${statusBadge(o.status)}
         </div>
         <div class="oc-customer">
@@ -83,6 +139,8 @@ App.pages = App.pages || {};
                 <td class="td-id cell-main" data-label="رقم الطلب" style="color:var(--sky-700)">
                   #${esc(o.id)}
                   ${o.parentOrderId ? `<div class="small muted" style="font-weight:600">${icon("split", 11)} مكمل #${esc(o.parentOrderId)}</div>` : ""}
+                  ${(o.parentOrderId && o.status === "pending" && o.childDeadline) ? `<div class="small" style="font-weight:800;color:#d97706">${icon("timer", 11)} <span data-countdown-deadline="${esc(o.childDeadline)}">--:--</span></div>` : ""}
+                  ${o.pendingChildDeadline ? `<div class="small" style="font-weight:800;color:#0369a1">${icon("timer", 11)} مكمل #${esc(o.pendingChildOrderId)}: <span data-countdown-deadline="${esc(o.pendingChildDeadline)}">--:--</span></div>` : ""}
                 </td>
                 <td class="td-customer" data-label="العميل">
                   <div class="cell-main">${esc(o.customerName)}</div>
@@ -101,7 +159,7 @@ App.pages = App.pages || {};
       </div>`;
   }
 
-  App.shared = { orderCard, ordersTable, medLabel };
+  App.shared = { orderCard, ordersTable, medLabel, formatCountdown, ensureGlobalCountdownTicker };
 
   /* ============================================================
      لوحة التحكم الرئيسية
@@ -429,6 +487,11 @@ App.pages = App.pages || {};
     });
   }
   App.bindOrderCards = bindOrderCards;
+
+  /* 🆕 تشغيل العدّاد العام مرة واحدة بمجرد تحميل الملف — هيفضل شغّال
+     طول عمر التطبيق ويحدّث أي عنصر data-countdown-deadline موجود في
+     أي صفحة، من غير ما نحتاج نستدعيه يدويًا في كل mount() */
+  ensureGlobalCountdownTicker();
 })();
 
 /* ============================================================
@@ -457,8 +520,10 @@ App.pages = App.pages || {};
      الباك إند (formatOrderRow في orders.js) بيرجع childDeadline لأي
      طلب فرعي (parentOrderId موجود) لسه "pending" — وهو الميعاد اللي
      هيتقفل عنده تلقائيًا كـ"نفاد من السوق" لو محدش اتفاعل معاه.
-     الدوال دي بتشغّل عدّاد hh:mm:ss حي جوه صفحة تفاصيل الطلب فقط،
-     وبتوقف نفسها أوتوماتيك لو المستخدم غيّر الصفحة أو انتهت المهلة.
+     الدوال دي بتشغّل عدّاد hh:mm:ss حي جوه صفحة تفاصيل الطلب فقط
+     (الكارت الرئيسي الكبير)، وبتوقف نفسها أوتوماتيك لو المستخدم غيّر
+     الصفحة أو انتهت المهلة. البادجات الصغيرة في الكروت/الجداول
+     بتتحدّث من العدّاد العام في App.shared بدل الاعتماد على ده.
      ============================================================ */
   let _countdownInterval = null;
 
@@ -661,6 +726,27 @@ App.pages = App.pages || {};
         </div>`
       : "";
 
+    /* 🆕🆕 بانر عدّاد تنازلي للطلب "الأب" — بيبان للصيدلية اللي عملت
+       التنفيذ الجزئي في الأول أصلاً (أو للأدمن) عشان تتابع مهلة إغلاق
+       الطلب "المكمل" (الابن) الناتج عن التقسيم، من غير ما تدخل تفتح
+       صفحة الطلب الابن بنفسها. بيعتمد على pendingChildDeadline اللي
+       بيرجعه الباك إند (getPendingChildMap في orders.js) لأي طلب لسه
+       عنده طلب فرعي "pending" مرتبط بيه. العدّاد نفسه بيتحدّث تلقائيًا
+       عبر العدّاد العام (data-countdown-deadline) في App.shared. */
+    const pendingChildCountdownHTML = (o.pendingChildDeadline && (user.role === "admin" || o.pharmacyId === user.id))
+      ? `
+        <div class="card" style="margin-bottom:20px;border:1.5px solid #fde68a;background:linear-gradient(135deg,#fffbeb,#fff)">
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <div style="flex-shrink:0;color:#d97706">${icon("timer", 22)}</div>
+            <div style="flex:1;min-width:220px">
+              <div class="bold" style="font-size:14.5px;margin-bottom:3px">مهلة الطلب المكمل <a href="#/orders/${esc(o.pendingChildOrderId)}" style="color:var(--sky-700);font-weight:800">#${esc(o.pendingChildOrderId)}</a> قبل إغلاقه تلقائيًا</div>
+              <div class="small muted">الأصناف الناقصة من هذا الطلب لسه معروضة على باقي الصيادلة — لو محدش اتفاعل معاها هتتقفل تلقائيًا كـ«نفاد من السوق» ويتبلّغ العميل عند انتهاء العدّاد</div>
+            </div>
+            <div class="bold" style="font-size:24px;color:#d97706;font-variant-numeric:tabular-nums;min-width:80px;text-align:center" data-countdown-deadline="${esc(o.pendingChildDeadline)}">--:--</div>
+          </div>
+        </div>`
+      : "";
+
     return `
       <div class="page-anim">
         <div style="margin-bottom:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -674,6 +760,7 @@ App.pages = App.pages || {};
         </div>
 
         ${countdownHTML}
+        ${pendingChildCountdownHTML}
 
         ${canAct ? `
         <div class="card" style="margin-bottom:20px;border:1.5px solid var(--sky-100);background:linear-gradient(135deg,var(--sky-50),#fff)">
@@ -939,7 +1026,9 @@ App.pages = App.pages || {};
       if (!o) { stopCountdownTicker(); return; }
 
       /* 🆕 تشغيل العدّاد التنازلي لو الطلب "فرعي" ولسه "pending" وعنده
-         childDeadline — وإلا نوقف أي عدّاد قديم شغّال من صفحة سابقة */
+         childDeadline — وإلا نوقف أي عدّاد قديم شغّال من صفحة سابقة.
+         عدّاد الطلب "الأب" (pendingChildCountdownHTML) بيتحدّث لوحده
+         عن طريق العدّاد العام في App.shared، مش محتاج تشغيل يدوي هنا */
       if (o.parentOrderId && o.status === "pending" && o.childDeadline) {
         startCountdownTicker(param);
       } else {
