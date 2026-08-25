@@ -303,8 +303,22 @@ async function expireStalePendingOrders() {
     }
 }
 
+/* ============================================================
+    🆕 formatOrderRow — تمت إضافة "childDeadline" فقط:
+    ------------------------------------------------------------
+    ده الميعاد المتوقع لإغلاق الطلب "الفرعي" (parentOrderId موجود)
+    تلقائيًا كـ "نفاد من السوق" لو مفيش أي إجراء عليه خالص، محسوب
+    من نفس createdAt الحقيقي بتاع الطلب + CHILD_ORDER_TIMEOUT_MINUTES
+    (نفس القيمة المستخدمة فعليًا في expireStaleChildOrders تحت،
+    فأي تغيير في الـ env بينعكس هنا أوتوماتيك من غير أي تعديل تاني).
+    بيترجع null لأي طلب مش فرعي، أو فرعي بس خرج من حالة "pending"
+    (يعني اتقبل / اتعمل عليه تنفيذ جزئي / اتقفل نفاد من السوق) —
+    عشان الفرونت يعرف يوقف يعرض العدّاد فورًا.
+    ============================================================ */
 function formatOrderRow(order) {
     const extractedImage = extractPrescriptionImage(order);
+    const createdAtIso = order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString();
+    const normalizedStatus = normalizeStatus(order.status);
     return {
         id: String(order.id),
         customerName: order.customerName || order.customer_name,
@@ -312,8 +326,8 @@ function formatOrderRow(order) {
         address: order.address || "",
         items: resolveItems(order),
         prescriptionImage: extractedImage,
-        status: normalizeStatus(order.status),
-        createdAt: order.createdAt || order.created_at ? new Date(order.createdAt || order.created_at).toISOString() : new Date().toISOString(),
+        status: normalizedStatus,
+        createdAt: createdAtIso,
         pharmacyId: order.pharmacyId || order.pharmacy_id || null,
         pharmacyName: order.pharmacyName || order.pharmacy_name || null,
         price: order.price || null,
@@ -330,6 +344,12 @@ function formatOrderRow(order) {
         deliveredAt: order.deliveredAt || null,
         rootOrderId: order.rootOrderId || null,
         parentOrderId: order.parentOrderId || null,
+        // 🆕 مهلة إغلاق الطلب الفرعي تلقائيًا — تظهر فقط لو الطلب فرعي
+        // (parentOrderId موجود) ولسه "pending". الفرونت بيستخدمها في
+        // عدّاد تنازلي حي (شوف startCountdownTicker في pages1.js)
+        childDeadline: (order.parentOrderId && normalizedStatus === "pending")
+            ? new Date(new Date(createdAtIso).getTime() + CHILD_ORDER_TIMEOUT_MINUTES * 60000).toISOString()
+            : null,
     };
 }
 
