@@ -596,10 +596,38 @@ window.App = window.App || {};
       save(); emit();
       return u;
     },
-    deletePharmacist(id) {
+
+    /* ============================================================
+       🛠️ (تعديل جذري) deletePharmacist()
+       ------------------------------------------------------------
+       المشكلة القديمة: الدالة دي كانت بتمسح الصيدلي من db.users
+       محليًا بس (localStorage)، من غير ما تنادي أي API خالص — رغم
+       إن كل عمليات الإدارة التانية (تعديل / إيقاف / إضافة) بتكلم
+       السيرفر. النتيجة: الصيدلي كان بيختفي من الشاشة لحظيًا بس يفضل
+       موجود فعليًا في قاعدة البيانات، وأول ما تعمل logout/login،
+       hydratePharmacistsFromServer() كانت بترجعه تاني من السيرفر.
+
+       الحل: بقت الدالة async وبتنادي App.api.deletePharmacist() (اللي
+       اتضافت في api.js وبتكلم الـ route الجديد DELETE /auth/user/:id
+       في auth.js) *قبل* أي حذف محلي. لو السيرفر رفض الطلب أو الاتصال
+       اتقطع، بنرمي الخطأ (throw) بدل ما نعمل fallback محلي — عشان
+       الأدمن يعرف إن الحذف ما تمّش فعليًا بدل ما تظهر الواجهة وكأنه
+       اتمسح وهو لسه موجود في الداتابيز (نفس المشكلة الأصلية بالظبط).
+
+       ⚠️ ملحوظة: بما إن الدالة بقت async و ممكن ترمي خطأ، أي كود
+       بينادي S().deletePharmacist(...) (زي pages2.js) لازم يستخدم
+       await جوه try/catch عشان يمسك الخطأ ويعرض رسالة واضحة للأدمن.
+       ============================================================ */
+    async deletePharmacist(id) {
+      const result = await App.api.deletePharmacist(id);
+      if (!result || !result.ok) {
+        throw new Error((result && result.error) || "تعذر حذف الصيدلي من الخادم");
+      }
       db.users = db.users.filter((x) => x.id !== id);
       save(); emit();
+      return true;
     },
+
     async togglePharmacistStatus(id) {
       const u = db.users.find((x) => x.id === id);
       if (!u) return;
