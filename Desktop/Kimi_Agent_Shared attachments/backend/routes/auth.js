@@ -3,7 +3,7 @@
    ============================================================ */
 const express = require("express");
 const router = express.Router();
-const { run, get, all, toDbDateTime } = require("../db/database");
+const { run, get, all, toDbDateTime, withTransaction } = require("../db/database");
 
 /* ============================================================
    تسجيل الدخول
@@ -132,45 +132,47 @@ router.put("/user/:userId", async (req, res) => {
 });
 
 /* ============================================================
-   الحصول على قائمة الصيادلة (Admin فقط)
+   🆕 حذف مستخدم نهائيًا (Admin فقط) — كانت الميزة دي ناقصة بالكامل
+   ------------------------------------------------------------
+   المشكلة القديمة: مكانش فيه أي route هنا لحذف مستخدم، فزر "حذف"
+   في الواجهة (pages2.js) كان بينادي App.store.deletePharmacist()
+   اللي بتمسح الصيدلي من localStorage بس، من غير ما تكلم السيرفر
+   خالص. النتيجة: الصيدلي فضل موجود في قاعدة البيانات، وأول ما
+   تعمل logout/login (أو حتى refresh)، hydratePharmacistsFromServer()
+   في store.js كانت بتجيبه تاني من السيرفر وكأنه ما اتمسحش.
+
+   الحل: أضفنا الـ route ده اللي فعليًا بيحذف الصف من جدول users.
+
+   ⚠️ ملحوظة مهمة: عمود orders."pharmacyId" مربوط بـ Foreign Key على
+   users(id) من غير ON DELETE، فلو الصيدلي ده سبق ونفّذ أي طلبات،
+   حذفه مباشرة كان هيفشل بخطأ قيد مرجعي (foreign key violation).
+   عشان كده قبل الحذف بنعمل UPDATE على الطلبات القديمة بتاعته ونصفّر
+   "pharmacyId" بس (مع الإبقاء على "pharmacyName" اللي مخزّن في الطلب
+   نفسه كنص مستقل) — كده الطلبات القديمة بتفضل في السجلات بالظبط زي
+   ما كانت الرسالة الأصلية في الواجهة بتوعد المستخدم، وفي نفس الوقت
+   الحذف بينجح من غير ما يكسر قيد الـ FK. الخطوتين بيحصلوا جوه
+   transaction واحدة (withTransaction) عشان لو أي واحدة فشلت، التانية
+   ترجع زي ما كانت (rollback) بدل ما يحصل تحديث جزئي.
    ============================================================ */
-router.get("/pharmacists", async (req, res) => {
+router.delete("/user/:userId", async (req, res) => {
     try {
-        const pharmacists = await all("SELECT * FROM users WHERE role = 'pharmacist'");
+        const { userId } = req.params;
 
-        pharmacists.forEach((p) => delete p.password);
-
-        res.json({ ok: true, pharmacists });
-    } catch (err) {
-        console.error("❌ خطأ في جلب قائمة الصيادلة:", err.message);
-        res.status(500).json({ ok: false, error: "خطأ في الخادم" });
-    }
-});
-
-/* ============================================================
-   تحديث حالة المستخدم (Admin فقط)
-   ============================================================ */
-router.patch("/user/:userId/status", async (req, res) => {
-    try {
-        const { status } = req.body;
-
-        if (!["active", "suspended"].includes(status)) {
-            return res.status(400).json({ ok: false, error: "حالة غير صحيحة" });
+        const user = await get("SELECT id, role FROM users WHERE id = $1", [userId]);
+        if (!user) {
+            return res.status(404).json({ ok: false, error: "المستخدم غير موجود" });
         }
 
-        await run("UPDATE users SET status = $1, \"updatedAt\" = $2 WHERE id = $3", [
-            status,
-            toDbDateTime(),
-            req.params.userId,
-        ]);
+        await withTransaction(async (tx) => {
+            // فصل الطلبات القديمة عن الصيدلي (تفضل في السجلات باسم الصيدلية المخزّن في pharmacyName)
+            await tx.run(`UPDATE orders SET "pharmacyId" = NULL WHERE "pharmacyId" = $1`, [userId]);
+            await tx.run(`DELETE FROM users WHERE id = $1`, [userId]);
+        });
 
-        const user = await get("SELECT * FROM users WHERE id = $1", [req.params.userId]);
-        delete user.password;
-
-        res.json({ ok: true, user });
+        res.json({ ok: true, id: userId });
     } catch (err) {
-        console.error("❌ خطأ في تحديث الحالة:", err.message);
-        res.status(500).json({ ok: false, error: "خطأ في الخادم" });
+        console.error("❌ خطأ في حذف المستخدم:", err.message);
+        res.status(500).json({ ok: false, error: "تعذر حذف المستخدم من الخادم" });
     }
 });
 
