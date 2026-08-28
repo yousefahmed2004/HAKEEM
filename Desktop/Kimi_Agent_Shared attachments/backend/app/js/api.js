@@ -142,6 +142,19 @@ window.App = window.App || {};
             });
         },
 
+        /* ---------- 🆕 قبول الطلب بالكامل (Race-safe) ----------
+           بتنادي /orders/:id/accept الجديد بدل التحديث العام، عشان
+           الباك إند يعمل قفل حقيقي على الصف (FOR UPDATE) ويمنع
+           صيدليتين من قبول نفس الطلب في نفس اللحظة.
+           payload = { pharmacyId, pharmacyName }
+           الرد: { ok, id } أو خطأ برسالة واضحة لو الطلب اتاخد قبل كده */
+        async acceptOrder(id, payload) {
+            return apiRequest(`/orders/${id}/accept`, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
+        },
+
         async updateOrder(id, patch) {
             return apiRequest(`/orders/${id}`, {
                 method: "PUT",
