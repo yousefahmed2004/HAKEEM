@@ -103,6 +103,16 @@ window.App = window.App || {};
             }
         },
 
+        /* ---------- 🆕 حذف صيدلي نهائيًا ----------
+           كانت الدالة دي ناقصة بالكامل، وده هو سبب المشكلة الأساسي:
+           الحذف كان بيحصل محليًا بس (store.js) من غير ما يوصل للسيرفر
+           أبدًا. الرد المتوقع من الباك إند: { ok: true, id } */
+        async deletePharmacist(userId) {
+            return apiRequest(`/auth/user/${userId}`, {
+                method: "DELETE"
+            });
+        },
+
         /* ---------- الطلبات ---------- */
 
         async getOrders() {
