@@ -903,6 +903,123 @@ router.post("/orders", async (req, res) => {
 });
 
 /* ============================================================
+    🆕🆕🆕 قبول الطلب بالكامل — Race-safe accept
+    ------------------------------------------------------------
+    ده الحل لمشكلة "صيدليتين قبلوا نفس الطلب في نفس الوقت": بدل ما
+    نعتمد على تحديث عام (PUT /orders/:id) من غير أي قفل، الـ endpoint
+    ده بيعمل SELECT ... FOR UPDATE جوه transaction — يعني بيقفل صف
+    الطلب في قاعدة البيانات فعليًا لحظة ما أول صيدلي يضغط "قبول".
+
+    لو صيدلي تاني ضغط "قبول" لنفس الطلب في نفس اللحظة (حتى لو فرق
+    ميلي ثانية)، الـ transaction بتاعته هتستنى (بسبب القفل) لحد ما
+    الأول يخلّص (commit)، وبعدين هي هتقرا status الطلب اللي بقى
+    "accepted" مش "pending" فهترفض العملية بـ 409 — فمستحيل يحصل قبول
+    مزدوج لنفس الطلب تحت أي ظرف.
+
+    كمان بيتحقق من سعة الصيدلية (maxActiveOrders) جوه نفس القفل، عشان
+    منتجاش لسيناريو مشابه: صيدلية توصل للحد الأقصى بسبب قبول متزامن
+    لطلبين مختلفين في نفس اللحظة.
+    ============================================================ */
+router.post("/orders/:id/accept", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { pharmacyId, pharmacyName } = req.body;
+
+        if (!pharmacyId || !pharmacyName) {
+            return res.status(400).json({ ok: false, error: "بيانات الصيدلية مطلوبة" });
+        }
+
+        const txResult = await db.withTransaction(async (tx) => {
+            // 🔒 القفل الفعلي: أي طلب accept تاني لنفس الـ id هيستنى هنا
+            // لحد ما الـ transaction ده يخلّص (commit أو rollback)
+            const order = await tx.get(`SELECT * FROM orders WHERE id = $1 FOR UPDATE`, [id]);
+            if (!order) {
+                const e = new Error("الطلب غير موجود");
+                e.httpStatus = 404;
+                throw e;
+            }
+
+            if (normalizeStatus(order.status) !== "pending") {
+                const e = new Error("عذرًا، تم التعامل مع هذا الطلب بالفعل من صيدلية أخرى");
+                e.httpStatus = 409;
+                throw e;
+            }
+
+            const rejectedBy = order.rejectedBy
+                ? (typeof order.rejectedBy === "string" ? JSON.parse(order.rejectedBy) : order.rejectedBy)
+                : [];
+            if (rejectedBy.includes(pharmacyId)) {
+                const e = new Error("سبق أن اعتذرت عن هذا الطلب");
+                e.httpStatus = 409;
+                throw e;
+            }
+
+            // فحص سعة الصيدلية (الحد الأقصى للطلبات النشطة) جوه نفس القفل
+            const capRow = await tx.get(`SELECT "maxActiveOrders" FROM users WHERE id = $1`, [pharmacyId]);
+            const maxActive = capRow && Number(capRow.maxActiveOrders) > 0 ? Number(capRow.maxActiveOrders) : 3;
+            const activeCountRow = await tx.get(
+                `SELECT COUNT(*)::int as cnt FROM orders
+                 WHERE "pharmacyId" = $1 AND status = 'accepted'
+                   AND COALESCE("workflowStatus", '') NOT IN ('delivered', 'cancelled')`,
+                [pharmacyId]
+            );
+            const activeCount = activeCountRow ? activeCountRow.cnt : 0;
+            if (activeCount >= maxActive) {
+                const e = new Error("لقد وصلت للحد الأقصى من الطلبات النشطة المسموح بها");
+                e.httpStatus = 409;
+                throw e;
+            }
+
+            const items = resolveItems({ items: order.items, rawItems: order.items });
+            const executionDeadline = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+            const updated = await tx.get(
+                `UPDATE orders
+                 SET status = 'accepted',
+                     "pharmacyId" = $1,
+                     "pharmacyName" = $2,
+                     "availableItems" = $3,
+                     "unavailableItems" = '[]',
+                     "workflowStatus" = 'awaiting_receipt',
+                     "executionPending" = 1,
+                     "executionDeadline" = $4,
+                     "executionCompleted" = 0,
+                     "executionFailed" = 0,
+                     "executedAt" = NULL,
+                     "updatedAt" = NOW()
+                 WHERE id = $5 AND status = 'pending'
+                 RETURNING id`,
+                [pharmacyId, pharmacyName, JSON.stringify(items), executionDeadline, id]
+            );
+
+            // شبكة أمان إضافية: لو لأي سبب الـ UPDATE ماأثرش على أي صف
+            // (يعني status اتغيّر ما بين القراءة والتحديث رغم القفل)
+            if (!updated) {
+                const e = new Error("عذرًا، تم التعامل مع هذا الطلب بالفعل من صيدلية أخرى");
+                e.httpStatus = 409;
+                throw e;
+            }
+
+            await tx.run(
+                `INSERT INTO order_timeline ("orderId", at, text, color) VALUES ($1, NOW(), $2, $3)`,
+                [id, `قبل الطلب — ${pharmacyName}`, "#10b981"]
+            );
+
+            return { id: updated.id };
+        });
+
+        res.json({ ok: true, id: String(txResult.id) });
+    } catch (err) {
+        const status = err.httpStatus || 500;
+        if (status === 500) {
+            console.error("❌ خطأ في قبول الطلب:", err.message);
+            return res.status(500).json({ ok: false, error: "فشل في قبول الطلب" });
+        }
+        res.status(status).json({ ok: false, error: err.message, alreadyTaken: status === 409 });
+    }
+});
+
+/* ============================================================
     تحديث الطلب
     ------------------------------------------------------------
     🆕🆕🆕 (تعديل جوهري — حماية على مستوى السيرفر): أي محاولة تغيير
@@ -915,10 +1032,10 @@ router.post("/orders", async (req, res) => {
     و"خرج للتوصيل" برضو لسه بتتحقق من computeChainShippingBlock —
     (مفيش طرف تاني في السلسلة لسه "pending").
 
-    ملحوظة: الطلبات اللي كانت "partial" وترقّت لـ "accepted" (شوف
-    /orders/:id/unavailable تحت — حالة "استحالة توفير الباقي من
-    السوق كليًا") بتعدي من هنا عادي زي أي طلب accepted تاني، لأن
-    normalizeStatus(currentOrder.status) بقى "accepted" مش "partial".
+    ⚠️ ملحوظة: قبول الطلب بالكامل (accept) بقى ليه endpoint خاص أعلى
+    (POST /orders/:id/accept) لأنه بيحتاج قفل صف حقيقي (FOR UPDATE)
+    يمنع التسابق بين صيدليتين — الفرونت إند بقى بينادي عليه بدل ما
+    يعمل accept عن طريق الـ PUT العام ده.
     ============================================================ */
 router.put("/orders/:id", async (req, res) => {
     try {
