@@ -718,30 +718,60 @@ window.App = window.App || {};
       });
     },
 
-    acceptOrder(id, user) {
+    /* ============================================================
+       🛠️🛠️ (تعديل جوهري) acceptOrder() — Race-safe
+       ------------------------------------------------------------
+       المشكلة القديمة: الدالة دي كانت بتعدّل الطلب محليًا بشكل
+       متفائل (optimistic) وتبعت التحديث للسيرفر عن طريق PUT العام
+       (saveOrderBackend → updateOrder) من غير أي قفل حقيقي على الصف
+       في قاعدة البيانات. لو صيدليتين ضغطوا "قبول" على نفس الطلب في
+       نفس اللحظة (حتى بفارق ميلي ثانية)، الاتنين كانوا بيشوفوا الطلب
+       محليًا "pending" (لسه ما وصلهمش تحديث بعض)، فالاتنين بينفذوا
+       الدالة دي بنجاح محليًا، والباك إند كان بيقبل آخر تحديث يوصله
+       من غير ما يتحقق إن حد تاني سبقه — فالنتيجة كانت تضارب بيانات
+       (الطلب بيتسجل لصيدلية واحدة فعليًا بس الاتنين شايفين إنهم
+       قبلوه بنجاح في واجهتهم).
+
+       الحل: الدالة بقت async وبتنادي App.api.acceptOrder() الجديدة
+       (POST /orders/:id/accept) اللي بتعمل SELECT ... FOR UPDATE
+       جوه transaction — يعني بتقفل صف الطلب فعليًا في قاعدة البيانات.
+       أي صيدلي تاني يحاول يقبل نفس الطلب في نفس اللحظة هيستنى لحد ما
+       الأول يخلّص، وبعدين هيترفض بوضوح (409) لأن status بقى
+       "accepted" مش "pending". فمستحيل يحصل قبول مزدوج لنفس الطلب.
+
+       التحديث المحلي (تحديث نقاط التنفيذ، إلخ) بقى بيحصل *بعد* تأكيد
+       نجاح الطلب من السيرفر بس، وبعدين بنعمل syncOrders() لجلب أحدث
+       نسخة حقيقية للطلب من الباك إند.
+
+       ⚠️ ملحوظة: بما إن الدالة بقت async، أي كود بينادي
+       S().acceptOrder(...) لازم يستخدم await (اتعدّل في pages1.js).
+       ============================================================ */
+    async acceptOrder(id, user) {
       const o = this.getOrder(id);
       if (!o || o.status !== "pending" || (o.rejectedBy && o.rejectedBy.includes(user.id))) return null;
       const pharmacist = db.users.find((u) => u.id === user.id) || user;
       if (!pharmacist || getActiveOrderCountForPharmacist(user.id) >= getDefaultMaxActiveOrders(pharmacist)) return null;
-      ensureExecutionProfile(pharmacist);
-      if (pharmacist) {
-        pharmacist.executionStats.accepted += 1;
+
+      try {
+        const result = await App.api.acceptOrder(id, {
+          pharmacyId: user.id,
+          pharmacyName: user.pharmacyName,
+        });
+        if (!result || !result.ok) return null;
+      } catch (e) {
+        // السيرفر برفض واضح (409) لو الطلب اتاخد قبل كده من صيدلية تانية
+        console.error("❌ فشل قبول الطلب:", e.message);
+        return null;
       }
-      o.status = "accepted";
-      o.pharmacyId = user.id; o.pharmacyName = user.pharmacyName;
-      o.availableItems = [...o.items]; o.unavailableItems = [];
-      o.workflowStatus = "awaiting_receipt";
-      o.executionPending = true;
-      o.executionDeadline = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-      o.executionCompleted = false;
-      o.executionFailed = false;
-      o.executedAt = null;
-      const timelineText = `قبل الطلب — ${user.pharmacyName}`;
-      const timelineColor = "#10b981";
-      o.timeline.push({ at: new Date().toISOString(), text: timelineText, color: timelineColor });
+
+      ensureExecutionProfile(pharmacist);
+      pharmacist.executionStats.accepted += 1;
       save(); emit();
-      saveOrderBackend(o, timelineText, timelineColor);
-      return o;
+
+      // جلب الطلب المحدَّث فعليًا من السيرفر (المصدر الوحيد الموثوق للحالة)
+      await syncOrders();
+      const fresh = this.getOrder(id);
+      return fresh && fresh.pharmacyId === user.id ? fresh : null;
     },
 
     async partialOrder(id, user, available, unavailable, price, notes) {
