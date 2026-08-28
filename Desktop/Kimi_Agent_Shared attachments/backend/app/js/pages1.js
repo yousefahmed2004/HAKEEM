@@ -1073,19 +1073,19 @@ App.pages = App.pages || {};
       }
 
       /* قبول الطلب بالكامل — يتطلب تأكيدًا، ولا يمكن التراجع عنه بعد القبول */
-      const acceptBtn = document.getElementById("act-accept");
+     const acceptBtn = document.getElementById("act-accept");
       if (acceptBtn) acceptBtn.onclick = () => {
         confirmModal({
           title: "تأكيد قبول الطلب",
           icon: "checkCircle",
           message: `هل أنت متأكد من قبول الطلب <b>#${esc(o.id)}</b> بالكامل؟ سيصبح هذا الطلب مسؤوليتك ولن يظهر بعدها لباقي الصيادلة.`,
           confirmText: "نعم، قبول الطلب",
-          onConfirm() {
-            const result = S().acceptOrder(o.id, user);
+          async onConfirm() {
+            const result = await S().acceptOrder(o.id, user);
             if (result) {
               toast("تم قبول الطلب بنجاح", `#${o.id}`, "success");
             } else {
-              toast("تعذر قبول الطلب", "ربما وصلت للحد الأقصى من الطلبات النشطة أو تم التعامل معه بالفعل", "error");
+              toast("تعذر قبول الطلب", "على الأرجح تم قبوله بالفعل من صيدلية أخرى، أو وصلت للحد الأقصى من الطلبات النشطة", "error");
             }
             refresh();
           },
