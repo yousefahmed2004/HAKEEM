@@ -389,6 +389,47 @@ img {
   color: var(--blue);
 }
 
+/* ============================================================
+   🆕 (تعديل) سويتش عرض/إخفاء ملوّن — بديل بصري لبوتن toggle-top-search
+   ------------------------------------------------------------
+   شكل بادج دائري: أخضر واضح لما يكون "عرض" مفعّل، وأحمر واضح لما
+   يكون "إخفاء" مفعّل، عشان تبقى الحالة الحالية بايّنة من أول نظرة
+   من غير ما تحتاج تقرا النص.
+   ============================================================ */
+.vis-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 99px;
+  font-size: 12.5px;
+  font-weight: 800;
+  border: 1.5px solid transparent;
+  transition: all .2s ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.vis-toggle.is-show {
+  background: var(--green-100);
+  color: #047857;
+  border-color: #a7f3d0;
+}
+
+.vis-toggle.is-show:hover {
+  background: #bbf7d0;
+}
+
+.vis-toggle.is-hide {
+  background: var(--red-100);
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.vis-toggle.is-hide:hover {
+  background: #fecaca;
+}
+
 .execution-ring {
   width: 68px;
   height: 68px;
@@ -3035,7 +3076,22 @@ img {
   z-index: 1;
 }
 
-.stat-icon {
+/* ============================================================
+   🛠️ (تعديل) إصلاح خاصية أيقونات الإحصائيات الباهتة في لوحة التحكم
+   ------------------------------------------------------------
+   المشكلة القديمة: ".stat-icon { color: white; }" هنا كانت قاعدة
+   عامة (Global) بتطبّق على أي عنصر بكلاس .stat-icon في كل الصفحات —
+   بما فيها كروت لوحة التحكم (statCard() في pages1.js) اللي بتحدد
+   لون الأيقونة بنفسها عن طريق "--sc-color" (var مخصص لكل كارت).
+   قاعدة "color: white" هنا كانت بتطغى على "--sc-color" فبتخلي كل
+   أيقونات لوحة التحكم بيضا على خلفية فاتحة = تظهر باهتة/شبه مختفية.
+
+   الحل: تحديد القاعدة بـ ".stats-grid .stat-icon" بدل ".stat-icon"
+   المطلقة، عشان الـ "color: white" يقتصر بس على صفحة تفاصيل الصيدلية
+   (اللي فيها .stats-grid فعلاً)، ومايأثرش على أي كارت إحصائيات تاني
+   زي كروت لوحة التحكم اللي محتاجة تفضل بألوانها الطبيعية.
+   ============================================================ */
+.stats-grid .stat-icon {
   width: 48px;
   height: 48px;
   border-radius: 12px;
@@ -3233,4 +3289,3 @@ img {
     width: 100%;
   }
 }
-
