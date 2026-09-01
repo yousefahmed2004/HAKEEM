@@ -2870,3 +2870,367 @@ img {
     padding: 20px;
   }
 }
+
+/* ============ صفحات الصيدليات والتحليلات (pages4.js) ============ */
+
+/* شبكة البطاقات */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 20px;
+}
+
+/* بطاقة الصيدلية */
+.pharmacy-card {
+  background: var(--card);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(227, 237, 247, .8);
+  padding: 22px;
+  cursor: pointer;
+  transition: all .3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pharmacy-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+.pharmacy-card .card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.pharmacy-card .card-title {
+  font-size: 16px;
+  font-weight: 800;
+  margin: 0 0 4px 0;
+}
+
+.pharmacy-card .card-sub {
+  font-size: 13.5px;
+  color: var(--muted);
+  margin: 2px 0;
+}
+
+.pharmacy-card .card-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.stat-box {
+  background: var(--bg-soft);
+  padding: 14px;
+  border-radius: 12px;
+  text-align: center;
+}
+
+.stat-box .stat-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.stat-box .stat-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pharmacy-card .card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  margin-top: 0;
+}
+
+/* مختار الفترة الزمنية */
+.period-selector {
+  display: flex;
+  gap: 8px;
+  background: var(--bg-soft);
+  padding: 12px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.period-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1.5px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all .2s ease;
+}
+
+.period-tab input {
+  display: none;
+}
+
+.period-tab:hover {
+  border-color: var(--sky);
+  color: var(--sky);
+  background: var(--sky-50);
+}
+
+.period-tab.active {
+  background: linear-gradient(135deg, var(--sky) 0%, var(--blue) 100%);
+  border-color: transparent;
+  color: white;
+}
+
+/* شبكة الإحصائيات */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.stat-card {
+  background: var(--card);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid rgba(227, 237, 247, .8);
+  padding: 18px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 140px;
+}
+
+.stat-card::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 100px;
+  height: 100px;
+  background: radial-gradient(circle, currentColor, transparent);
+  opacity: 0.05;
+  border-radius: 50%;
+  z-index: 0;
+}
+
+.stat-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.stats-grid .stat-card:nth-child(1) .stat-icon {
+  color: #0284c7;
+}
+
+.stats-grid .stat-card:nth-child(2) .stat-icon {
+  color: #16a34a;
+}
+
+.stats-grid .stat-card:nth-child(3) .stat-icon {
+  color: #d97706;
+}
+
+.stats-grid .stat-card:nth-child(4) .stat-icon {
+  color: #dc2626;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: auto;
+}
+
+/* رسم بياني الأعمدة الشهرية */
+.monthly-chart {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 8px;
+  min-height: 200px;
+  align-items: flex-end;
+}
+
+.month-bar {
+  width: 100%;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all .2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.month-bar:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px -4px rgba(2, 132, 199, .35);
+}
+
+/* الجدول */
+.table-responsive {
+  overflow-x: auto;
+  margin: -22px -22px -22px -22px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  padding: 0 22px;
+}
+
+.table thead {
+  background: var(--bg-soft);
+}
+
+.table th {
+  padding: 12px 14px;
+  text-align: right;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.table td {
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.table tr:hover {
+  background: var(--bg-soft);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+/* الحالة الفارغة (Empty State) */
+.empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.empty-state svg {
+  opacity: 0.4;
+  margin-bottom: 12px;
+}
+
+.empty-state h3 {
+  color: var(--ink-2);
+  font-size: 16px;
+  margin: 0;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.empty-state.small {
+  padding: 32px 24px;
+}
+
+/* رأس الصفحة */
+.page-header {
+  margin-bottom: 24px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.page-header h1 {
+  font-size: 28px;
+  font-weight: 900;
+  margin: 0 0 8px 0;
+  color: var(--ink);
+}
+
+.page-header .text-muted {
+  color: var(--muted);
+  font-size: 15px;
+  margin: 0;
+}
+
+/* الكول على الموبايل */
+@media (max-width: 768px) {
+  .cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .monthly-chart {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .pharmacy-card .card-body {
+    grid-template-columns: 1fr;
+  }
+
+  .period-selector {
+    flex-direction: column;
+  }
+
+  .period-tab {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .pharmacy-card .card-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pharmacy-card .card-footer a {
+    width: 100%;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-header .btn {
+    width: 100%;
+  }
+}
+
