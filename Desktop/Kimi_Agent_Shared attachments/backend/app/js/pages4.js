@@ -90,8 +90,8 @@ App.pages = App.pages || {};
                 <div class="small">معدل التنفيذ</div>
               </div>
               <div style="display:flex;gap:8px;align-items:center">
-                <button class="toggle-top-search btn btn-soft btn-sm" data-pharmacy-id="${esc(p.id)}" title="عرض/إخفاء الخدمات الأكثر طلبًا">
-                  ${icon("eye", 16)} ${pharmacyTopSearchStates[p.id] !== false ? "عرض" : "إخفاء"}
+                <button class="toggle-top-search vis-toggle ${pharmacyTopSearchStates[p.id] !== false ? "is-show" : "is-hide"}" data-pharmacy-id="${esc(p.id)}" title="عرض/إخفاء الخدمات الأكثر طلبًا">
+                  ${icon("eye", 14)} ${pharmacyTopSearchStates[p.id] !== false ? "عرض" : "إخفاء"}
                 </button>
                 <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
               </div>
@@ -148,9 +148,11 @@ App.pages = App.pages || {};
           }
           
           const isShowing = pharmacyTopSearchStates[pharmacyId];
-          
-          // تحديث نص الزر
-          btn.innerHTML = `${icon("eye", 16)} ${isShowing ? "عرض" : "إخفاء"}`;
+
+          // تحديث شكل الزرار (سويتش أخضر/أحمر) ونصّه
+          btn.classList.toggle("is-show", isShowing);
+          btn.classList.toggle("is-hide", !isShowing);
+          btn.innerHTML = `${icon("eye", 14)} ${isShowing ? "عرض" : "إخفاء"}`;
           
           // تظهير تنبيه
           App.ui.toast(
