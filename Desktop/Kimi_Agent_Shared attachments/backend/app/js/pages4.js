@@ -8,11 +8,49 @@ App.pages = App.pages || {};
   const { icon, esc, avatar, fmtMoney, fmtNum, toast } = App.ui;
   const S = () => App.store;
   
-  // تخزين الفترة الزمنية المختارة لكل صيدلية
+  // تخزين الفترة الزمنية المختارة لكل صيدلية (اسم الاختصار السريع، أو "custom")
   const selectedPeriods = {};
-  
+
+  // 🆕 تخزين نطاق التاريخ الفعلي (من/إلى) المختار لكل صيدلية — ده اللي
+  // بيتحسب عليه الإحصائيات فعليًا، سواء جه من زرار سريع أو من الكالندر
+  const selectedRanges = {};
+
   // تخزين حالة التوب سيرش لكل صيدلية (هل مفعل أم لا)
   const pharmacyTopSearchStates = {};
+
+  /* ============================================================
+     🆕 أدوات مساعدة لنطاق التاريخ (Date Range) — بتغذي حقلَي
+     <input type="date"> اللي بيفتحوا كالندر أصلي في المتصفح
+     ============================================================ */
+  function toDateInputValue(d) {
+    // تنسيق YYYY-MM-DD المطلوب لـ <input type="date">
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  function getDefaultRange(period) {
+    const now = new Date();
+    let start = new Date();
+    switch (period) {
+      case "day":
+        start.setDate(now.getDate() - 1);
+        break;
+      case "week":
+        start.setDate(now.getDate() - 7);
+        break;
+      case "month":
+        start.setMonth(now.getMonth() - 1);
+        break;
+      case "year":
+        start.setFullYear(now.getFullYear() - 1);
+        break;
+      default:
+        start.setMonth(now.getMonth() - 1);
+    }
+    return { from: toDateInputValue(start), to: toDateInputValue(now) };
+  }
   
   // تخزين في window للوصول من صفحات أخرى
   App.pharmacyTopSearchStates = pharmacyTopSearchStates;
@@ -192,34 +230,26 @@ App.pages = App.pages || {};
       const orders = S().getOrders();
       const phOrders = orders.filter((o) => o.pharmacyId === pharmacyId);
       
-      // الحصول على الفترة المختارة الحالية (أو استخدام "month" بشكل افتراضي)
+      // الفترة السريعة المختارة حاليًا (أو "month" بشكل افتراضي)
       const currentPeriod = selectedPeriods[pharmacyId] || "month";
+      // نطاق التاريخ الفعلي (من/إلى) — لو المستخدم لسه ماحددش نطاق مخصص
+      // بنستخدم نفس نطاق الفترة السريعة الافتراضية
+      const currentRange = selectedRanges[pharmacyId] || getDefaultRange(currentPeriod);
+      const todayStr = toDateInputValue(new Date());
 
-      // دالة لحساب الإحصائيات حسب الفترة الزمنية
-      function getStatsByPeriod(period) {
-        const now = new Date();
-        let startDate = new Date();
+      /* ============================================================
+         🆕 حساب الإحصائيات حسب نطاق تاريخ (من/إلى) بدل فترة ثابتة —
+         بيقبل أي نطاق مختار من الكالندر (input type="date") أو من
+         أزرار الاختصار السريعة
+         ============================================================ */
+      function getStatsByRange(fromStr, toStr) {
+        const start = new Date(fromStr + "T00:00:00");
+        const end = new Date(toStr + "T23:59:59");
 
-        switch (period) {
-          case "day":
-            startDate.setDate(now.getDate() - 1);
-            break;
-          case "week":
-            startDate.setDate(now.getDate() - 7);
-            break;
-          case "month":
-            startDate.setMonth(now.getMonth() - 1);
-            break;
-          case "year":
-            startDate.setFullYear(now.getFullYear() - 1);
-            break;
-          default:
-            startDate.setMonth(now.getMonth() - 1);
-        }
-
-        const filtered = phOrders.filter(
-          (o) => new Date(o.createdAt) >= startDate
-        );
+        const filtered = phOrders.filter((o) => {
+          const d = new Date(o.createdAt);
+          return d >= start && d <= end;
+        });
 
         return {
           total: filtered.length,
@@ -275,7 +305,7 @@ App.pages = App.pages || {};
       }
 
       const monthlyStats = getMonthlyStats();
-      const currentStats = getStatsByPeriod(currentPeriod);
+      const currentStats = getStatsByRange(currentRange.from, currentRange.to);
       const executionRate = currentStats.total > 0
         ? Math.round(((currentStats.accepted + currentStats.partial) / currentStats.total) * 100)
         : 0;
@@ -294,24 +324,33 @@ App.pages = App.pages || {};
           <a href="#/pharmacies" class="btn btn-soft">← العودة</a>
         </div>
 
-        <!-- مختار الفترة الزمنية -->
-        <div class="period-selector" style="display:flex;gap:8px;margin-bottom:24px;background:var(--bg-soft);padding:12px;border-radius:12px">
-          <label class="period-tab ${currentPeriod === "month" ? "active" : ""}" data-period="month">
-            <input type="radio" name="period" value="month" ${currentPeriod === "month" ? "checked" : ""} hidden>
-            <span>${icon("calendar", 16)} الشهر</span>
-          </label>
-          <label class="period-tab ${currentPeriod === "week" ? "active" : ""}" data-period="week">
-            <input type="radio" name="period" value="week" ${currentPeriod === "week" ? "checked" : ""} hidden>
-            <span>${icon("calendar", 16)} الأسبوع</span>
-          </label>
-          <label class="period-tab ${currentPeriod === "day" ? "active" : ""}" data-period="day">
-            <input type="radio" name="period" value="day" ${currentPeriod === "day" ? "checked" : ""} hidden>
-            <span>${icon("calendar", 16)} اليوم</span>
-          </label>
-          <label class="period-tab ${currentPeriod === "year" ? "active" : ""}" data-period="year">
-            <input type="radio" name="period" value="year" ${currentPeriod === "year" ? "checked" : ""} hidden>
-            <span>${icon("calendar", 16)} السنة</span>
-          </label>
+        <!-- ============================================================
+             🆕 مختار الفترة الزمنية — كالندر (من/إلى) + اختصارات سريعة
+             ------------------------------------------------------------
+             بدل التابات الثابتة (يوم/أسبوع/شهر/سنة) بس، دلوقتي فيه
+             حقلين تاريخ حقيقيين (input type="date") بيفتحوا كالندر
+             المتصفح الأصلي، فتقدر تحدد أي نطاق تاريخ عايزه بالظبط.
+             الأزرار السريعة لسه موجودة لسهولة الاستخدام وبتملى
+             الحقلين تلقائيًا.
+             ============================================================ -->
+        <div class="period-selector" style="display:flex;flex-direction:column;gap:14px;margin-bottom:24px;background:var(--bg-soft);padding:14px;border-radius:12px">
+          <div class="period-quick" style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="period-tab ${currentPeriod === "day" ? "active" : ""}" data-quick="day">${icon("zap", 15)} اليوم</button>
+            <button type="button" class="period-tab ${currentPeriod === "week" ? "active" : ""}" data-quick="week">${icon("zap", 15)} الأسبوع</button>
+            <button type="button" class="period-tab ${currentPeriod === "month" ? "active" : ""}" data-quick="month">${icon("zap", 15)} الشهر</button>
+            <button type="button" class="period-tab ${currentPeriod === "year" ? "active" : ""}" data-quick="year">${icon("zap", 15)} السنة</button>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div class="field" style="margin:0">
+              <label>${icon("calendar", 14)} من تاريخ</label>
+              <input type="date" class="input" id="range-from" value="${esc(currentRange.from)}" max="${esc(todayStr)}" />
+            </div>
+            <div class="field" style="margin:0">
+              <label>${icon("calendar", 14)} إلى تاريخ</label>
+              <input type="date" class="input" id="range-to" value="${esc(currentRange.to)}" max="${esc(todayStr)}" />
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" id="range-apply">${icon("check", 15)} تطبيق</button>
+          </div>
         </div>
 
         <!-- البطاقات الإحصائية -->
@@ -431,22 +470,38 @@ App.pages = App.pages || {};
     },
 
     mount(user, pharmacyId) {
-      // معالج اختيار الفترة الزمنية
-      document.querySelectorAll(".period-selector .period-tab").forEach((tab) => {
-        tab.addEventListener("click", () => {
-          const period = tab.dataset.period;
-          // حفظ الفترة المختارة
+      /* 🆕 أزرار الاختصار السريعة (اليوم/الأسبوع/الشهر/السنة) — بتملى
+         حقلَي الكالندر تلقائيًا بنطاق التاريخ المناسب وتطبّقه فورًا */
+      document.querySelectorAll(".period-selector .period-tab[data-quick]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const period = btn.dataset.quick;
           selectedPeriods[pharmacyId] = period;
-          
-          // تحديث الأزرار النشطة
-          document.querySelectorAll(".period-selector .period-tab").forEach((t) => {
-            t.classList.toggle("active", t.dataset.period === period);
-            t.querySelector("input").checked = t.dataset.period === period;
-          });
-          
-          // إعادة تحميل الصفحة لتحديث البيانات
+          selectedRanges[pharmacyId] = getDefaultRange(period);
           App.router.refresh();
         });
+      });
+
+      /* 🆕 زرار "تطبيق" — بياخد التاريخين من حقلَي الكالندر ويحسب
+         الإحصائيات على النطاق المخصص ده بالظبط */
+      const applyBtn = document.getElementById("range-apply");
+      if (applyBtn) applyBtn.addEventListener("click", () => {
+        const fromInput = document.getElementById("range-from");
+        const toInput = document.getElementById("range-to");
+        const from = fromInput.value;
+        const to = toInput.value;
+
+        if (!from || !to) {
+          toast("حدد تاريخ البداية والنهاية", "", "warning");
+          return;
+        }
+        if (from > to) {
+          toast("تاريخ البداية لازم يكون قبل تاريخ النهاية", "", "warning");
+          return;
+        }
+
+        selectedPeriods[pharmacyId] = "custom";
+        selectedRanges[pharmacyId] = { from, to };
+        App.router.refresh();
       });
     },
   };
