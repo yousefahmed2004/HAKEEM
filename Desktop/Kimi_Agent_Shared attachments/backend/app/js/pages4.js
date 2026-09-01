@@ -233,6 +233,19 @@ App.pages = App.pages || {};
         };
       }
 
+      /* ============================================================
+         🛠️ (تعديل) أسماء الشهور بالعربي — ثابتة بدل الاعتماد على
+         toLocaleDateString + substring(0,3)
+         ------------------------------------------------------------
+         المشكلة القديمة: الاسم المختصر كان بيتحسب بقص أول 3 حروف من
+         الاسم الكامل الراجع من toLocaleDateString("ar-EG"، {month:"long"})،
+         وده كان بيدي نتائج غلط لبعض الشهور (زي "سبتمبر" اللي المفروض
+         تختصر لـ "سبت" لكن كانت بتطلع "ست").
+         الحل: مصفوفتين ثابتتين (الاسم الكامل + الاسم المختصر الصحيح)
+         مفهرسة بنفس ترتيب getMonth() (0 = يناير ... 11 = ديسمبر). */
+      const ARABIC_MONTHS_FULL = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+      const ARABIC_MONTHS_SHORT = ["ينا", "فبر", "مار", "أبر", "ماي", "يون", "يول", "أغس", "سبت", "أكت", "نوف", "ديس"];
+
       // دالة لحساب الإحصائيات الشهرية
       function getMonthlyStats() {
         const months = [];
@@ -248,7 +261,8 @@ App.pages = App.pages || {};
           });
 
           months.push({
-            month: date.toLocaleDateString("ar-EG", { month: "long" }),
+            month: ARABIC_MONTHS_FULL[date.getMonth()],
+            shortMonth: ARABIC_MONTHS_SHORT[date.getMonth()],
             revenue: monthOrders
               .filter((o) => o.price)
               .reduce((sum, o) => sum + (o.price || 0), 0),
@@ -351,7 +365,7 @@ App.pages = App.pages || {};
                   return `
                     <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
                       <div class="month-bar" style="width:100%;height:${Math.max(height, 10)}px;background:linear-gradient(to top,#0284c7,#0ea5e9);border-radius:4px;cursor:pointer" title="${m.month}: ${fmtMoney(m.revenue)}"></div>
-                      <div style="font-size:12px;text-align:center;color:var(--text-muted);white-space:nowrap">${m.month.substring(0, 3)}</div>
+                      <div style="font-size:12px;text-align:center;color:var(--text-muted);white-space:nowrap">${m.shortMonth}</div>
                       <div style="font-size:11px;color:var(--text-muted);text-align:center">${fmtNum(m.count)}</div>
                     </div>
                   `;
