@@ -321,7 +321,7 @@ App.pages = App.pages || {};
 App.pages.dashboard = {
   title: "لوحة التحكم",
   crumb: "نظرة عامة على النشاط",
-  render(user) { return user.role === "admin" ? adminDashboard(user) : pharmacistDashboard(user); }, // ✅ ابعت user
+ render(user) { return user.role === "admin" ? adminDashboard(user) : pharmacistDashboard(user); },
   mount(user) { if (user.role === "admin") mountAdminDashboard(); bindOrderCards(); },
 };
 
