@@ -18,6 +18,10 @@ App.pages = App.pages || {};
   // تخزين حالة التوب سيرش لكل صيدلية (هل مفعل أم لا)
   const pharmacyTopSearchStates = {};
 
+  // 🆕 تخزين نص البحث الحالي في قائمة الصيدليات (بيفضل محفوظ لو رجعت
+  // للصفحة تاني في نفس الجلسة)
+  let pharmaciesSearchQuery = "";
+
   /* ============================================================
      🆕 أدوات مساعدة لنطاق التاريخ (Date Range) — بتغذي حقلَي
      <input type="date"> اللي بيفتحوا كالندر أصلي في المتصفح
@@ -81,63 +85,73 @@ App.pages = App.pages || {};
         };
       }
 
-      const pharmaciesHTML = pharmacists
-        .filter((p) => p.status === "active")
-        .map((p) => {
-          const stats = getPharmacyStats(p.id);
-          const executionRate = stats.total > 0
-            ? Math.round(((stats.accepted + stats.partial) / stats.total) * 100)
-            : 0;
+      // 🆕 دالة تبني نص قابل للبحث (اسم الصيدلية + اسم المسؤول + الهاتف + العنوان)
+      function buildSearchBlob(p) {
+        return [p.pharmacyName, p.name, p.phone, p.address]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+      }
 
-          return `
-          <div class="card-item pharmacy-card" data-pharmacy-id="${esc(p.id)}">
-            <div class="card-header">
-              <div style="display:flex;align-items:center;gap:12px;flex:1">
-                ${avatar(p.pharmacyName, p.color, "avatar-lg")}
-                <div>
-                  <div class="card-title">${esc(p.pharmacyName)}</div>
-                  <div class="card-sub">${esc(p.name)}</div>
-                  ${p.phone ? `<div class="small muted" style="margin-top:4px">${icon("phone", 12)} ${esc(p.phone)}</div>` : ""}
-                  ${p.address ? `<div class="small muted">${icon("pin", 12)} ${esc(p.address)}</div>` : ""}
-                </div>
-              </div>
-            </div>
+      // 🆕 دالة بناء كارت صيدلية واحدة (اتفصلت لوحدها عشان تتستخدم
+      // برضو وقت الفلترة الحيّة من غير إعادة تحميل الصفحة كلها)
+      function buildPharmacyCard(p) {
+        const stats = getPharmacyStats(p.id);
+        const executionRate = stats.total > 0
+          ? Math.round(((stats.accepted + stats.partial) / stats.total) * 100)
+          : 0;
 
-            <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-              <div class="stat-box">
-                <div class="stat-value">${fmtNum(stats.total)}</div>
-                <div class="stat-label">إجمالي الطلبات</div>
-              </div>
-              <div class="stat-box">
-                <div class="stat-value">${fmtMoney(stats.totalRevenue)}</div>
-                <div class="stat-label">الإيرادات</div>
-              </div>
-            </div>
-
-            <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px;margin-top:12px">
-              <span class="badge badge-accepted">${icon("check", 14)} ${stats.accepted} منفذة</span>
-              <span class="badge badge-partial">${icon("alert", 14)} ${stats.partial} جزئية</span>
-              <span class="badge badge-rejected">${icon("x", 14)} ${stats.rejected} مرفوضة</span>
-            </div>
-
-            <div class="card-footer" style="display:flex;align-items:center;justify-content:space-between">
-              <div style="display:flex;align-items:center;gap:8px">
-                <div class="execution-ring small" style="--ring-value:${executionRate};--ring-color:${executionRate > 60 ? "#10b981" : executionRate > 40 ? "#f59e0b" : "#ef4444"}">
-                  <span>${executionRate}%</span>
-                </div>
-                <div class="small">معدل التنفيذ</div>
-              </div>
-              <div style="display:flex;gap:8px;align-items:center">
-                <button class="toggle-top-search vis-toggle ${pharmacyTopSearchStates[p.id] !== false ? "is-show" : "is-hide"}" data-pharmacy-id="${esc(p.id)}" title="عرض/إخفاء الخدمات الأكثر طلبًا">
-                  ${icon("eye", 14)} ${pharmacyTopSearchStates[p.id] !== false ? "عرض" : "إخفاء"}
-                </button>
-                <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
+        return `
+        <div class="card-item pharmacy-card" data-pharmacy-id="${esc(p.id)}" data-search="${esc(buildSearchBlob(p))}">
+          <div class="card-header">
+            <div style="display:flex;align-items:center;gap:12px;flex:1">
+              ${avatar(p.pharmacyName, p.color, "avatar-lg")}
+              <div>
+                <div class="card-title">${esc(p.pharmacyName)}</div>
+                <div class="card-sub">${esc(p.name)}</div>
+                ${p.phone ? `<div class="small muted" style="margin-top:4px">${icon("phone", 12)} ${esc(p.phone)}</div>` : ""}
+                ${p.address ? `<div class="small muted">${icon("pin", 12)} ${esc(p.address)}</div>` : ""}
               </div>
             </div>
           </div>
-          `;
-        })
-        .join("");
+
+          <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div class="stat-box">
+              <div class="stat-value">${fmtNum(stats.total)}</div>
+              <div class="stat-label">إجمالي الطلبات</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${fmtMoney(stats.totalRevenue)}</div>
+              <div class="stat-label">الإيرادات</div>
+            </div>
+          </div>
+
+          <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px;margin-top:12px">
+            <span class="badge badge-accepted">${icon("check", 14)} ${stats.accepted} منفذة</span>
+            <span class="badge badge-partial">${icon("alert", 14)} ${stats.partial} جزئية</span>
+            <span class="badge badge-rejected">${icon("x", 14)} ${stats.rejected} مرفوضة</span>
+          </div>
+
+          <div class="card-footer" style="display:flex;align-items:center;justify-content:space-between">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="execution-ring small" style="--ring-value:${executionRate};--ring-color:${executionRate > 60 ? "#10b981" : executionRate > 40 ? "#f59e0b" : "#ef4444"}">
+                <span>${executionRate}%</span>
+              </div>
+              <div class="small">معدل التنفيذ</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="toggle-top-search vis-toggle ${pharmacyTopSearchStates[p.id] !== false ? "is-show" : "is-hide"}" data-pharmacy-id="${esc(p.id)}" title="عرض/إخفاء الخدمات الأكثر طلبًا">
+                ${icon("eye", 14)} ${pharmacyTopSearchStates[p.id] !== false ? "عرض" : "إخفاء"}
+              </button>
+              <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
+            </div>
+          </div>
+        </div>
+        `;
+      }
+
+      const activePharmacists = pharmacists.filter((p) => p.status === "active");
+      const pharmaciesHTML = activePharmacists.map(buildPharmacyCard).join("");
 
       return `
       <div class="page-container">
@@ -146,15 +160,36 @@ App.pages = App.pages || {};
           <p class="text-muted">عرض وتحليل بيانات جميع الصيدليات</p>
         </div>
 
-        ${pharmacists.length === 0
+        ${activePharmacists.length === 0
           ? `<div class="empty-state">
                ${icon("inbox", 56)}
                <h3>لا توجد صيدليات</h3>
                <p>قم بإضافة صيدليات من قسم "الصيادلة" أولاً</p>
              </div>`
-          : `<div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:20px">
-               ${pharmaciesHTML}
-             </div>`}
+          : `
+            <!-- 🆕 سيرش بار للبحث عن الصيدليات (بالاسم / اسم المسؤول / الهاتف / العنوان) -->
+            <div class="pharmacies-search-bar" style="position:relative;margin-bottom:20px;max-width:420px">
+              <span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--text-muted);pointer-events:none;display:flex">${icon("search", 16)}</span>
+              <input
+                type="text"
+                id="pharmacies-search-input"
+                class="input"
+                style="padding-right:38px"
+                placeholder="ابحث باسم الصيدلية أو المسؤول أو الهاتف..."
+                value="${esc(pharmaciesSearchQuery)}"
+                autocomplete="off"
+              />
+            </div>
+
+            <div class="cards-grid" id="pharmacies-cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:20px">
+              ${pharmaciesHTML}
+            </div>
+
+            <div class="empty-state small" id="pharmacies-search-empty" style="display:none">
+              ${icon("search", 40)}
+              <p>لا توجد صيدليات مطابقة لبحثك</p>
+            </div>
+          `}
       </div>
       `;
     },
@@ -200,6 +235,39 @@ App.pages = App.pages || {};
           );
         });
       });
+
+      /* 🆕 معالج سيرش بار الصيدليات — فلترة حيّة (بدون إعادة تحميل
+         الصفحة) عشان المستخدم يقدر يكمل الكتابة براحته من غير ما
+         يفقد تركيز الحقل (focus) */
+      const searchInput = document.getElementById("pharmacies-search-input");
+      if (searchInput) {
+        const cards = Array.from(document.querySelectorAll("#pharmacies-cards-grid .pharmacy-card"));
+        const emptyState = document.getElementById("pharmacies-search-empty");
+        const grid = document.getElementById("pharmacies-cards-grid");
+
+        function applyFilter(rawQuery) {
+          const query = rawQuery.trim().toLowerCase();
+          pharmaciesSearchQuery = rawQuery;
+
+          let visibleCount = 0;
+          cards.forEach((card) => {
+            const haystack = card.dataset.search || "";
+            const isMatch = query === "" || haystack.includes(query);
+            card.style.display = isMatch ? "" : "none";
+            if (isMatch) visibleCount++;
+          });
+
+          if (emptyState) emptyState.style.display = visibleCount === 0 ? "" : "none";
+          if (grid) grid.style.display = visibleCount === 0 ? "none" : "grid";
+        }
+
+        // تطبيق أي قيمة بحث محفوظة من قبل فورًا عند فتح الصفحة
+        if (pharmaciesSearchQuery) applyFilter(pharmaciesSearchQuery);
+
+        searchInput.addEventListener("input", (e) => {
+          applyFilter(e.target.value);
+        });
+      }
     },
   };
 
