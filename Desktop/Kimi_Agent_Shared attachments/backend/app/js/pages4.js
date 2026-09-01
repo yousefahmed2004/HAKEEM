@@ -18,9 +18,6 @@ App.pages = App.pages || {};
   // تخزين حالة التوب سيرش لكل صيدلية (هل مفعل أم لا)
   const pharmacyTopSearchStates = {};
 
-  // 🆕 كلمة البحث الحالية في صفحة "الصيدليات" (اسم الصيدلية/الصيدلي/الهاتف/العنوان)
-  let pharmaciesSearchQuery = "";
-
   /* ============================================================
      🆕 أدوات مساعدة لنطاق التاريخ (Date Range) — بتغذي حقلَي
      <input type="date"> اللي بيفتحوا كالندر أصلي في المتصفح
@@ -68,18 +65,85 @@ App.pages = App.pages || {};
 
     render(user) {
       const pharmacists = S().getPharmacists();
+      const orders = S().getOrders();
+
+      // دالة مساعدة لحساب إحصائيات الصيدلية
+      function getPharmacyStats(pharmacyId) {
+        const phOrders = orders.filter((o) => o.pharmacyId === pharmacyId);
+        return {
+          total: phOrders.length,
+          accepted: phOrders.filter((o) => o.status === "accepted").length,
+          partial: phOrders.filter((o) => o.status === "partial").length,
+          rejected: phOrders.filter((o) => o.status === "rejected").length,
+          totalRevenue: phOrders
+            .filter((o) => o.price)
+            .reduce((sum, o) => sum + (o.price || 0), 0),
+        };
+      }
+
+      const pharmaciesHTML = pharmacists
+        .filter((p) => p.status === "active")
+        .map((p) => {
+          const stats = getPharmacyStats(p.id);
+          const executionRate = stats.total > 0
+            ? Math.round(((stats.accepted + stats.partial) / stats.total) * 100)
+            : 0;
+
+          return `
+          <div class="card-item pharmacy-card" data-pharmacy-id="${esc(p.id)}">
+            <div class="card-header">
+              <div style="display:flex;align-items:center;gap:12px;flex:1">
+                ${avatar(p.pharmacyName, p.color, "avatar-lg")}
+                <div>
+                  <div class="card-title">${esc(p.pharmacyName)}</div>
+                  <div class="card-sub">${esc(p.name)}</div>
+                  ${p.phone ? `<div class="small muted" style="margin-top:4px">${icon("phone", 12)} ${esc(p.phone)}</div>` : ""}
+                  ${p.address ? `<div class="small muted">${icon("pin", 12)} ${esc(p.address)}</div>` : ""}
+                </div>
+              </div>
+            </div>
+
+            <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+              <div class="stat-box">
+                <div class="stat-value">${fmtNum(stats.total)}</div>
+                <div class="stat-label">إجمالي الطلبات</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">${fmtMoney(stats.totalRevenue)}</div>
+                <div class="stat-label">الإيرادات</div>
+              </div>
+            </div>
+
+            <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px;margin-top:12px">
+              <span class="badge badge-accepted">${icon("check", 14)} ${stats.accepted} منفذة</span>
+              <span class="badge badge-partial">${icon("alert", 14)} ${stats.partial} جزئية</span>
+              <span class="badge badge-rejected">${icon("x", 14)} ${stats.rejected} مرفوضة</span>
+            </div>
+
+            <div class="card-footer" style="display:flex;align-items:center;justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="execution-ring small" style="--ring-value:${executionRate};--ring-color:${executionRate > 60 ? "#10b981" : executionRate > 40 ? "#f59e0b" : "#ef4444"}">
+                  <span>${executionRate}%</span>
+                </div>
+                <div class="small">معدل التنفيذ</div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <button class="toggle-top-search vis-toggle ${pharmacyTopSearchStates[p.id] !== false ? "is-show" : "is-hide"}" data-pharmacy-id="${esc(p.id)}" title="عرض/إخفاء الخدمات الأكثر طلبًا">
+                  ${icon("eye", 14)} ${pharmacyTopSearchStates[p.id] !== false ? "عرض" : "إخفاء"}
+                </button>
+                <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
+              </div>
+            </div>
+          </div>
+          `;
+        })
+        .join("");
 
       return `
       <div class="page-container">
         <div class="page-header">
-          <div>
-            <h1>الصيدليات المفعّلة</h1>
-            <p class="text-muted">عرض وتحليل بيانات جميع الصيدليات</p>
-          </div>
-          <div class="input-wrap" style="width:300px;max-width:100%">
-            ${icon("search", 17)}
-            <input class="input" id="pharmacies-search" placeholder="ابحث باسم الصيدلية، الصيدلي، الهاتف..." value="${esc(pharmaciesSearchQuery)}" />
-          </div>
+          <h1>الصيدليات المفعّلة</h1>
+          <p class="text-muted">عرض وتحليل بيانات جميع الصيدليات</p>
         </div>
 
         ${pharmacists.length === 0
@@ -88,24 +152,53 @@ App.pages = App.pages || {};
                <h3>لا توجد صيدليات</h3>
                <p>قم بإضافة صيدليات من قسم "الصيادلة" أولاً</p>
              </div>`
-          : `<div id="pharmacies-list"></div>`}
+          : `<div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:20px">
+               ${pharmaciesHTML}
+             </div>`}
       </div>
       `;
     },
 
     mount(user) {
-      if (S().getPharmacists().length === 0) return;
+      // معالج النقر على بطاقة الصيدلية (للانتقال للتفاصيل)
+      document.querySelectorAll(".pharmacy-card").forEach((card) => {
+        card.addEventListener("click", (e) => {
+          if (!e.target.closest("a") && !e.target.closest(".toggle-top-search")) {
+            const id = card.dataset.pharmacyId;
+            App.router.go(`#/pharmacy/${id}`);
+          }
+        });
+      });
 
-      renderPharmaciesList();
+      // معالج زر toggle التوب سيرش
+      document.querySelectorAll(".toggle-top-search").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const pharmacyId = btn.dataset.pharmacyId;
+          
+          // تبديل الحالة (إذا لم تكن موجودة، تبدأ بـ true، وإلا تتبدل)
+          if (pharmacyTopSearchStates[pharmacyId] === undefined) {
+            pharmacyTopSearchStates[pharmacyId] = false;
+          } else {
+            pharmacyTopSearchStates[pharmacyId] = !pharmacyTopSearchStates[pharmacyId];
+          }
+          
+          const isShowing = pharmacyTopSearchStates[pharmacyId];
 
-      const searchInput = document.getElementById("pharmacies-search");
-      if (searchInput) searchInput.addEventListener("input", (e) => {
-        pharmaciesSearchQuery = e.target.value;
-        renderPharmaciesList();
-        // نحافظ على الفوكس ومكان المؤشر عشان الكتابة متتقطعش
-        const inp = document.getElementById("pharmacies-search");
-        inp.focus();
-        inp.setSelectionRange(inp.value.length, inp.value.length);
+          // تحديث شكل الزرار (سويتش أخضر/أحمر) ونصّه
+          btn.classList.toggle("is-show", isShowing);
+          btn.classList.toggle("is-hide", !isShowing);
+          btn.innerHTML = `${icon("eye", 14)} ${isShowing ? "عرض" : "إخفاء"}`;
+          
+          // تظهير تنبيه
+          App.ui.toast(
+            isShowing 
+              ? `✓ سيتم عرض الخدمات الأكثر طلبًا لهذه الصيدلية` 
+              : `✓ سيتم إخفاء الخدمات الأكثر طلبًا لهذه الصيدلية`
+          );
+        });
       });
     },
   };
