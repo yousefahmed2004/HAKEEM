@@ -7,6 +7,15 @@ App.pages = App.pages || {};
 (function () {
   const { icon, esc, avatar, fmtMoney, fmtNum, toast } = App.ui;
   const S = () => App.store;
+  
+  // تخزين الفترة الزمنية المختارة لكل صيدلية
+  const selectedPeriods = {};
+  
+  // تخزين حالة التوب سيرش لكل صيدلية (هل مفعل أم لا)
+  const pharmacyTopSearchStates = {};
+  
+  // تخزين في window للوصول من صفحات أخرى
+  App.pharmacyTopSearchStates = pharmacyTopSearchStates;
 
   /* ============================================================
      📱 قائمة الصيدليات (Pharmacies List)
@@ -68,9 +77,9 @@ App.pages = App.pages || {};
             </div>
 
             <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px;margin-top:12px">
-              <span class="badge badge-accepted">${icon("check", 14, "inline")} ${stats.accepted} منفذة</span>
-              <span class="badge badge-partial">${icon("alert", 14, "inline")} ${stats.partial} جزئية</span>
-              <span class="badge badge-rejected">${icon("x", 14, "inline")} ${stats.rejected} مرفوضة</span>
+              <span class="badge badge-accepted">${icon("check", 14)} ${stats.accepted} منفذة</span>
+              <span class="badge badge-partial">${icon("alert", 14)} ${stats.partial} جزئية</span>
+              <span class="badge badge-rejected">${icon("x", 14)} ${stats.rejected} مرفوضة</span>
             </div>
 
             <div class="card-footer" style="display:flex;align-items:center;justify-content:space-between">
@@ -80,7 +89,12 @@ App.pages = App.pages || {};
                 </div>
                 <div class="small">معدل التنفيذ</div>
               </div>
-              <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
+              <div style="display:flex;gap:8px;align-items:center">
+                <button class="toggle-top-search btn btn-soft btn-sm" data-pharmacy-id="${esc(p.id)}" title="عرض/إخفاء الخدمات الأكثر طلبًا">
+                  ${icon("eye", 16)} ${pharmacyTopSearchStates[p.id] !== false ? "عرض" : "إخفاء"}
+                </button>
+                <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
+              </div>
             </div>
           </div>
           `;
@@ -108,12 +122,42 @@ App.pages = App.pages || {};
     },
 
     mount(user) {
+      // معالج النقر على بطاقة الصيدلية (للانتقال للتفاصيل)
       document.querySelectorAll(".pharmacy-card").forEach((card) => {
         card.addEventListener("click", (e) => {
-          if (!e.target.closest("a")) {
+          if (!e.target.closest("a") && !e.target.closest(".toggle-top-search")) {
             const id = card.dataset.pharmacyId;
             App.router.go(`#/pharmacy/${id}`);
           }
+        });
+      });
+
+      // معالج زر toggle التوب سيرش
+      document.querySelectorAll(".toggle-top-search").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const pharmacyId = btn.dataset.pharmacyId;
+          
+          // تبديل الحالة (إذا لم تكن موجودة، تبدأ بـ true، وإلا تتبدل)
+          if (pharmacyTopSearchStates[pharmacyId] === undefined) {
+            pharmacyTopSearchStates[pharmacyId] = false;
+          } else {
+            pharmacyTopSearchStates[pharmacyId] = !pharmacyTopSearchStates[pharmacyId];
+          }
+          
+          const isShowing = pharmacyTopSearchStates[pharmacyId];
+          
+          // تحديث نص الزر
+          btn.innerHTML = `${icon("eye", 16)} ${isShowing ? "عرض" : "إخفاء"}`;
+          
+          // تظهير تنبيه
+          App.ui.toast(
+            isShowing 
+              ? `✓ سيتم عرض الخدمات الأكثر طلبًا لهذه الصيدلية` 
+              : `✓ سيتم إخفاء الخدمات الأكثر طلبًا لهذه الصيدلية`
+          );
         });
       });
     },
@@ -145,6 +189,9 @@ App.pages = App.pages || {};
 
       const orders = S().getOrders();
       const phOrders = orders.filter((o) => o.pharmacyId === pharmacyId);
+      
+      // الحصول على الفترة المختارة الحالية (أو استخدام "month" بشكل افتراضي)
+      const currentPeriod = selectedPeriods[pharmacyId] || "month";
 
       // دالة لحساب الإحصائيات حسب الفترة الزمنية
       function getStatsByPeriod(period) {
@@ -212,7 +259,7 @@ App.pages = App.pages || {};
       }
 
       const monthlyStats = getMonthlyStats();
-      const currentStats = getStatsByPeriod("month");
+      const currentStats = getStatsByPeriod(currentPeriod);
       const executionRate = currentStats.total > 0
         ? Math.round(((currentStats.accepted + currentStats.partial) / currentStats.total) * 100)
         : 0;
@@ -233,20 +280,20 @@ App.pages = App.pages || {};
 
         <!-- مختار الفترة الزمنية -->
         <div class="period-selector" style="display:flex;gap:8px;margin-bottom:24px;background:var(--bg-soft);padding:12px;border-radius:12px">
-          <label class="period-tab active" data-period="month">
-            <input type="radio" name="period" value="month" checked hidden>
+          <label class="period-tab ${currentPeriod === "month" ? "active" : ""}" data-period="month">
+            <input type="radio" name="period" value="month" ${currentPeriod === "month" ? "checked" : ""} hidden>
             <span>${icon("calendar", 16)} الشهر</span>
           </label>
-          <label class="period-tab" data-period="week">
-            <input type="radio" name="period" value="week" hidden>
+          <label class="period-tab ${currentPeriod === "week" ? "active" : ""}" data-period="week">
+            <input type="radio" name="period" value="week" ${currentPeriod === "week" ? "checked" : ""} hidden>
             <span>${icon("calendar", 16)} الأسبوع</span>
           </label>
-          <label class="period-tab" data-period="day">
-            <input type="radio" name="period" value="day" hidden>
+          <label class="period-tab ${currentPeriod === "day" ? "active" : ""}" data-period="day">
+            <input type="radio" name="period" value="day" ${currentPeriod === "day" ? "checked" : ""} hidden>
             <span>${icon("calendar", 16)} اليوم</span>
           </label>
-          <label class="period-tab" data-period="year">
-            <input type="radio" name="period" value="year" hidden>
+          <label class="period-tab ${currentPeriod === "year" ? "active" : ""}" data-period="year">
+            <input type="radio" name="period" value="year" ${currentPeriod === "year" ? "checked" : ""} hidden>
             <span>${icon("calendar", 16)} السنة</span>
           </label>
         </div>
@@ -254,27 +301,27 @@ App.pages = App.pages || {};
         <!-- البطاقات الإحصائية -->
         <div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px">
           <div class="stat-card">
-            <div class="stat-icon" style="background:#e0f2fe">${icon("inbox", 24, undefined, "#0284c7")}</div>
+            <div class="stat-icon" style="background:#e0f2fe">${icon("inbox", 24)}</div>
             <div class="stat-value">${fmtNum(currentStats.total)}</div>
             <div class="stat-label">إجمالي الطلبات</div>
           </div>
           <div class="stat-card">
-            <div class="stat-icon" style="background:#dcfce7">${icon("check", 24, undefined, "#16a34a")}</div>
+            <div class="stat-icon" style="background:#dcfce7">${icon("check", 24)}</div>
             <div class="stat-value">${fmtNum(currentStats.accepted)}</div>
             <div class="stat-label">طلبات منفذة</div>
           </div>
           <div class="stat-card">
-            <div class="stat-icon" style="background:#fef3c7">${icon("alert", 24, undefined, "#d97706")}</div>
+            <div class="stat-icon" style="background:#fef3c7">${icon("alert", 24)}</div>
             <div class="stat-value">${fmtNum(currentStats.partial)}</div>
             <div class="stat-label">طلبات جزئية</div>
           </div>
           <div class="stat-card">
-            <div class="stat-icon" style="background:#fee2e2">${icon("x", 24, undefined, "#dc2626")}</div>
+            <div class="stat-icon" style="background:#fee2e2">${icon("x", 24)}</div>
             <div class="stat-value">${fmtNum(currentStats.rejected)}</div>
             <div class="stat-label">طلبات مرفوضة</div>
           </div>
           <div class="stat-card">
-            <div class="stat-icon" style="background:#f3e8ff">${icon("trending", 24, undefined, "#a855f7")}</div>
+            <div class="stat-icon" style="background:#f3e8ff;color:#a855f7">${icon("trendingUp", 24)}</div>
             <div class="stat-value">${fmtMoney(currentStats.revenue)}</div>
             <div class="stat-label">إجمالي الإيرادات</div>
           </div>
@@ -371,9 +418,17 @@ App.pages = App.pages || {};
       // معالج اختيار الفترة الزمنية
       document.querySelectorAll(".period-selector .period-tab").forEach((tab) => {
         tab.addEventListener("click", () => {
-          document.querySelectorAll(".period-selector .period-tab").forEach((t) => t.classList.remove("active"));
-          tab.classList.add("active");
-          // إعادة تحميل الصفحة (في التطبيق الفعلي، ستقوم بتحديث البيانات بدون إعادة تحميل)
+          const period = tab.dataset.period;
+          // حفظ الفترة المختارة
+          selectedPeriods[pharmacyId] = period;
+          
+          // تحديث الأزرار النشطة
+          document.querySelectorAll(".period-selector .period-tab").forEach((t) => {
+            t.classList.toggle("active", t.dataset.period === period);
+            t.querySelector("input").checked = t.dataset.period === period;
+          });
+          
+          // إعادة تحميل الصفحة لتحديث البيانات
           App.router.refresh();
         });
       });
