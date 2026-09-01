@@ -182,7 +182,7 @@ App.pages = App.pages || {};
       </div>`;
   }
 
-  function adminDashboard() {
+  function adminDashboard(user) {
     const st = S().stats();
     const recent = S().getOrders().slice(0, 6);
     const topMeds = S().medicineStats().slice(0, 6);
