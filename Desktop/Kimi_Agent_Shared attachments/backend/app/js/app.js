@@ -18,6 +18,7 @@ window.App = window.App || {};
     if (role === "admin") {
       return [
         ...common,
+        { hash: "#/pharmacies", icon: "store", label: "الصيدليات" },
         { hash: "#/pharmacists", icon: "users", label: "الصيادلة" },
         { hash: "#/statistics", icon: "chart", label: "الإحصائيات" },
         { hash: "#/medicines", icon: "pill", label: "الأدوية الأكثر طلبًا" },
@@ -175,6 +176,8 @@ window.App = window.App || {};
     { pattern: /^#?\/?$/, page: "dashboard" },
     { pattern: /^#\/orders\/?$/, page: "orders" },
     { pattern: /^#\/orders\/(\d+)\/?$/, page: "orderDetails", param: 1 },
+    { pattern: /^#\/pharmacies\/?$/, page: "pharmacies" },
+    { pattern: /^#\/pharmacy\/([\w-]+)\/?$/, page: "pharmacyDetails", param: 1 },
     { pattern: /^#\/pharmacists\/?$/, page: "pharmacists" },
     { pattern: /^#\/statistics\/?$/, page: "statistics" },
     { pattern: /^#\/medicines\/?$/, page: "medicines" },
