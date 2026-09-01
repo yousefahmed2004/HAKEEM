@@ -318,12 +318,12 @@ App.pages = App.pages || {};
       </div>`;
   }
 
-  App.pages.dashboard = {
-    title: "لوحة التحكم",
-    crumb: "نظرة عامة على النشاط",
-    render(user) { return user.role === "admin" ? adminDashboard() : pharmacistDashboard(user); },
-    mount(user) { if (user.role === "admin") mountAdminDashboard(); bindOrderCards(); },
-  };
+App.pages.dashboard = {
+  title: "لوحة التحكم",
+  crumb: "نظرة عامة على النشاط",
+  render(user) { return user.role === "admin" ? adminDashboard(user) : pharmacistDashboard(user); }, // ✅ ابعت user
+  mount(user) { if (user.role === "admin") mountAdminDashboard(); bindOrderCards(); },
+};
 
   /* ============================================================
      صفحة الطلبات
