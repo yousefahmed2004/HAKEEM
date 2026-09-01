@@ -7,6 +7,12 @@ App.pages = App.pages || {};
 (function () {
   const { icon, esc, statusBadge, avatar, fmtDateTime, timeAgo, fmtMoney, fmtNum, emptyState, toast, modal, confirmModal, STATUS } = App.ui;
   const S = () => App.store;
+  
+  // دالة للوصول إلى حالات التوب سيرش من pages4.js
+  function getPharmacyTopSearchStates() {
+    // حاول الوصول إلى الكائن من pages4.js (يتم تخزينه في window)
+    return window.App.pharmacyTopSearchStates || {};
+  }
 
   /* ============================================================
      🆕 medLabel() — عرض اسم الدواء منفصل عن نوع العبوة (شارة صغيرة)
@@ -215,6 +221,7 @@ App.pages = App.pages || {};
             </div>
             ${ordersTable(recent, { showPrice: false })}
           </div>
+          ${getPharmacyTopSearchStates()[user.id] !== false ? `
           <div class="card">
             <div class="card-head">
               <div class="card-title">${icon("pill", 20)} الأكثر طلبًا</div>
@@ -228,6 +235,7 @@ App.pages = App.pages || {};
                 <div class="hb-val">${m.count}</div>
               </div>`).join("")}
           </div>
+          ` : ""}
         </div>
       </div>`;
   }
@@ -287,6 +295,26 @@ App.pages = App.pages || {};
           ${current.length ? ordersTable(current, { showPharmacy: false, showPhone: true })
         : emptyState("clipboard", "لا توجد طلبات قيد التنفيذ حاليًا", "الطلبات اللي هتقبلها هتفضل ظاهرة هنا لحد ما تخلّصها")}
         </div>
+
+        ${getPharmacyTopSearchStates()[user.id] !== false ? `
+        <div class="card" style="margin-top:20px">
+          <div class="card-head">
+            <div class="card-title">${icon("pill", 20)} الخدمات الأكثر طلبًا</div>
+            <a href="#/medicines" class="btn btn-soft btn-sm">Top 20</a>
+          </div>
+          ${(() => {
+            const topMeds = S().medicineStats().slice(0, 6);
+            const maxMed = Math.max(...topMeds.map((m) => m.count), 1);
+            return topMeds.map((m, i) => `
+              <div class="hbar-row ${i < 3 ? "top" : ""}">
+                <div class="hb-rank">${i + 1}</div>
+                <div class="hb-name">${esc(m.name)}</div>
+                <div class="hb-track"><div class="hb-fill" style="width:${(m.count / maxMed) * 100}%"></div></div>
+                <div class="hb-val">${m.count}</div>
+              </div>`).join("");
+          })()}
+        </div>
+        ` : ""}
       </div>`;
   }
 
