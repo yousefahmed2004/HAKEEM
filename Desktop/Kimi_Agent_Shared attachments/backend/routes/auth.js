@@ -77,6 +77,33 @@ router.post("/signup", handleUserRegistration);
 router.post("/pharmacist", handleUserRegistration);
 
 /* ============================================================
+   🆕 جلب كل الصيادلة (Admin)
+   ------------------------------------------------------------
+   كان هذا المسار ناقصًا بالكامل، رغم أن الفرونت إند (api.js →
+   App.api.getPharmacists) بينادي GET /api/auth/pharmacists عند فتح
+   صفحات "الصيادلة"/"الصيدليات"/لوحة التحكم (hydratePharmacistsFromServer
+   في store.js). غيابه كان بيسبب رجوع صفحة 404 (HTML) بدل JSON، وده
+   سبب خطأ "Unexpected token '<'" في الكونسول.
+
+   ⚠️ ملحوظة ترتيب: لازم يتحط هذا المسار (ثابت النص "/pharmacists")
+   قبل أو بعد "/user/:userId" مفيش فرق هنا لأن الاسمين مختلفين تمامًا
+   ومفيش تعارض بينهم في Express — لكن للسلامة تم وضعه في مكان منطقي
+   قبل مسارات "/user/:userId" المعتمدة على باراميتر ديناميكي.
+   ============================================================ */
+router.get("/pharmacists", async (req, res) => {
+    try {
+        const pharmacists = await all(
+            `SELECT * FROM users WHERE role = 'pharmacist' ORDER BY "createdAt" DESC`
+        );
+        pharmacists.forEach((p) => delete p.password);
+        res.json({ ok: true, pharmacists });
+    } catch (err) {
+        console.error("❌ خطأ في جلب الصيادلة:", err.message);
+        res.status(500).json({ ok: false, error: "خطأ في الخادم" });
+    }
+});
+
+/* ============================================================
    الحصول على بيانات المستخدم الحالي
    ============================================================ */
 router.get("/user/:userId", async (req, res) => {
@@ -127,6 +154,43 @@ router.put("/user/:userId", async (req, res) => {
         res.json({ ok: true, user: updatedUser });
     } catch (err) {
         console.error("❌ خطأ في تحديث الملف الشخصي:", err.message);
+        res.status(500).json({ ok: false, error: "خطأ في الخادم" });
+    }
+});
+
+/* ============================================================
+   🆕 تفعيل/إيقاف حساب مستخدم (Admin)
+   ------------------------------------------------------------
+   كان هذا المسار ناقصًا بالكامل، رغم أن الفرونت إند (api.js →
+   App.api.updateUserStatus) بينادي PATCH /api/auth/user/:userId/status
+   عند الضغط على زر "إيقاف/إعادة تفعيل" في صفحة الصيادلة (pages2.js).
+   غيابه كان بيسبب نفس مشكلة الـ 404/HTML بدل JSON.
+   ============================================================ */
+router.patch("/user/:userId/status", async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { status } = req.body;
+
+        if (!["active", "suspended"].includes(status)) {
+            return res.status(400).json({ ok: false, error: "قيمة الحالة غير صحيحة" });
+        }
+
+        const user = await get("SELECT id FROM users WHERE id = $1", [userId]);
+        if (!user) {
+            return res.status(404).json({ ok: false, error: "المستخدم غير موجود" });
+        }
+
+        await run(
+            `UPDATE users SET status = $1, "updatedAt" = $2 WHERE id = $3`,
+            [status, toDbDateTime(), userId]
+        );
+
+        const updatedUser = await get("SELECT * FROM users WHERE id = $1", [userId]);
+        delete updatedUser.password;
+
+        res.json({ ok: true, user: updatedUser });
+    } catch (err) {
+        console.error("❌ خطأ في تحديث حالة المستخدم:", err.message);
         res.status(500).json({ ok: false, error: "خطأ في الخادم" });
     }
 });
