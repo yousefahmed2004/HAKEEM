@@ -8,6 +8,8 @@
    - /payments/status: نظرة عامة على كل الصيدليات لفترة معينة —
      مين دفع (accepted) / مين لسه في المراجعة (pending) / مين
      اتُرفض إيصاله (rejected) / مين لسه ما بعتش خالص (not_submitted).
+     🆕 دلوقتي بترجع كمان phone و address لكل صيدلية عشان تتعرض
+     في صفحة "طلبات الدفع" بالأدمين.
    ============================================================ */
 const express = require("express");
 const router = express.Router();
@@ -157,13 +159,17 @@ router.post("/payments/receipts/:id/reject", async (req, res) => {
    ------------------------------------------------------------
    بترجع كل صيدلي مع حالته: accepted / pending / rejected /
    not_submitted، بالإضافة لملخص أعداد جاهز للعرض في كروت.
+
+   🆕 دلوقتي بترجع كمان: responsibleName (اسم المسؤول)، phone،
+   address — عشان صفحة "طلبات الدفع" تقدر تعرض بيانات الصيدلية
+   كاملة تحت اسمها، مش الاسم لوحده بس.
    ============================================================ */
 router.get("/payments/status", async (req, res) => {
     try {
         const period = req.query.period || currentPeriod();
 
         const pharmacists = await db.all(
-            `SELECT id, "pharmacyName", name, status AS "accountStatus"
+            `SELECT id, "pharmacyName", name, phone, address, status AS "accountStatus"
              FROM users WHERE role = 'pharmacist' ORDER BY "pharmacyName" ASC`
         );
 
@@ -182,6 +188,9 @@ router.get("/payments/status", async (req, res) => {
             return {
                 pharmacyId: p.id,
                 pharmacyName: p.pharmacyName || p.name,
+                responsibleName: p.name || null,
+                phone: p.phone || null,
+                address: p.address || null,
                 accountStatus: p.accountStatus,
                 paymentStatus: r ? r.status : "not_submitted",
                 receiptId: r ? r.id : null,
