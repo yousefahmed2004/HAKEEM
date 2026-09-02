@@ -23,73 +23,63 @@ App.pages = App.pages || {};
   let pharmaciesSearchQuery = "";
 
   /* ============================================================
-     🆕 attachBanHandlers / attachAvatarZoomHandlers
-     ------------------------------------------------------------
-     دالتين مساعدتين مشتركتين بين صفحة القائمة (pharmacies) وصفحة
-     التفاصيل (pharmacyDetails) عشان منكررش نفس منطق الـ event
-     listeners في المكانين.
+     🆕 event delegation على document بالكامل بدل ما نعلّق
+     listeners على عناصر بعينها جوه mount() (اللي ممكن يكون توقيتها
+     أو تكرارها سبب مشاكل). الطريقة دي بتشتغل مهما كانت الصفحة
+     اتعادت رسمها (re-render) وبتتسجل مرة واحدة بس عند تحميل السكريبت.
      ============================================================ */
-
-  // 🆕 تكبير أفاتار الصيدلية (بلور للخلفية + تكبير) — على أي عنصر
-  // عليه data-avatar-zoom مع بيانات الصيدلية في data-* attributes
-  function attachAvatarZoomHandlers(root = document) {
-    root.querySelectorAll("[data-avatar-zoom]").forEach((el) => {
-      el.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        App.ui.avatarLightbox({
-          name: el.dataset.name,
-          color: el.dataset.color,
-          phone: el.dataset.phone,
-          address: el.dataset.address,
-          subtitle: el.dataset.subtitle,
-        });
+  document.addEventListener("click", (e) => {
+    // 🆕 تكبير أفاتار الصيدلية (بلور + تكبير)
+    const zoomEl = e.target.closest("[data-avatar-zoom]");
+    if (zoomEl) {
+      e.preventDefault();
+      e.stopPropagation();
+      App.ui.avatarLightbox({
+        name: zoomEl.dataset.name,
+        color: zoomEl.dataset.color,
+        phone: zoomEl.dataset.phone,
+        address: zoomEl.dataset.address,
+        subtitle: zoomEl.dataset.subtitle,
       });
-    });
-  }
+      return;
+    }
 
-  // 🆕 زرار "بند الصيدلية" — بيستخدم App.store.togglePharmacistStatus
-  // الموجودة أصلاً (نفس المنطق المستخدم في صفحة "طلبات الدفع")، واللي
-  // بتقفل تسجيل الدخول فورًا (status = "suspended") لحد ما حد يعيد
-  // تفعيل الحساب تاني. بعد النجاح بنعمل refresh للصفحة عشان أي تغيير
-  // في الحالة يبان فورًا (زي اختفاء الكارت من قائمة "الصيدليات المفعّلة").
-  function attachBanHandlers(root = document) {
-    root.querySelectorAll("[data-ban-toggle]").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+    // 🆕 زرار بند/إعادة تفعيل الصيدلية
+    const banBtn = e.target.closest("[data-ban-toggle]");
+    if (banBtn) {
+      e.preventDefault();
+      e.stopPropagation();
 
-        const id = btn.dataset.banToggle;
-        const name = btn.dataset.banName;
-        const willSuspend = btn.dataset.banAction === "suspend";
+      const id = banBtn.dataset.banToggle;
+      const name = banBtn.dataset.banName;
+      const willSuspend = banBtn.dataset.banAction === "suspend";
 
-        App.ui.confirmModal({
-          title: willSuspend ? "بند الصيدلية" : "إعادة تفعيل الصيدلية",
-          message: willSuspend
-            ? `هل أنت متأكد من بند صيدلية <b>${esc(name)}</b>؟ لن يقدر أي صيدلي تابع لها يسجّل الدخول لحد ما تُعاد تفعيلها.`
-            : `هل تريد إعادة تفعيل صيدلية <b>${esc(name)}</b> والسماح لها بتسجيل الدخول مرة أخرى؟`,
-          confirmText: willSuspend ? "بند الصيدلية" : "إعادة التفعيل",
-          danger: willSuspend,
-          icon: willSuspend ? "ban" : "check",
-          onConfirm: async () => {
-            btn.disabled = true;
-            try {
-              await S().togglePharmacistStatus(id);
-              toast(
-                "تم",
-                willSuspend ? `تم بند صيدلية ${name} مؤقتًا` : `تم إعادة تفعيل صيدلية ${name}`,
-                willSuspend ? "info" : "success"
-              );
-              App.router.refresh();
-            } catch (err) {
-              toast("خطأ", "تعذر تنفيذ العملية، حاول مرة أخرى", "warning");
-              btn.disabled = false;
-            }
-          },
-        });
+      App.ui.confirmModal({
+        title: willSuspend ? "بند الصيدلية" : "إعادة تفعيل الصيدلية",
+        message: willSuspend
+          ? `هل أنت متأكد من بند صيدلية <b>${esc(name)}</b>؟ لن يقدر أي صيدلي تابع لها يسجّل الدخول لحد ما تُعاد تفعيلها.`
+          : `هل تريد إعادة تفعيل صيدلية <b>${esc(name)}</b> والسماح لها بتسجيل الدخول مرة أخرى؟`,
+        confirmText: willSuspend ? "بند الصيدلية" : "إعادة التفعيل",
+        danger: willSuspend,
+        icon: willSuspend ? "ban" : "check",
+        onConfirm: async () => {
+          banBtn.disabled = true;
+          try {
+            await S().togglePharmacistStatus(id);
+            toast(
+              "تم",
+              willSuspend ? `تم بند صيدلية ${name} مؤقتًا` : `تم إعادة تفعيل صيدلية ${name}`,
+              willSuspend ? "info" : "success"
+            );
+            App.router.refresh();
+          } catch (err) {
+            toast("خطأ", "تعذر تنفيذ العملية، حاول مرة أخرى", "warning");
+            banBtn.disabled = false;
+          }
+        },
       });
-    });
-  }
+    }
+  });
 
   /* ============================================================
      🆕 أدوات مساعدة لنطاق التاريخ (Date Range) — بتغذي حقلَي
@@ -295,11 +285,9 @@ App.pages = App.pages || {};
         });
       });
 
-      // 🆕 تكبير الأفاتار (بلور + تكبير)
-      attachAvatarZoomHandlers();
-
-      // 🆕 زرار بند الصيدلية
-      attachBanHandlers();
+      // 🆕 تكبير الأفاتار وزرار بند الصيدلية بيشتغلوا عن طريق
+      // event delegation عام على document (شوف أعلى الملف) — مفيش
+      // داعي نعلّق listeners هنا تاني.
 
       // معالج زر toggle التوب سيرش
       document.querySelectorAll(".toggle-top-search").forEach((btn) => {
@@ -657,11 +645,8 @@ App.pages = App.pages || {};
     },
 
     mount(user, pharmacyId) {
-      // 🆕 تكبير أفاتار الصيدلية (بلور + تكبير)
-      attachAvatarZoomHandlers();
-
-      // 🆕 زرار بند/إعادة تفعيل الصيدلية
-      attachBanHandlers();
+      // 🆕 تكبير الأفاتار وزرار بند/إعادة تفعيل الصيدلية بيشتغلوا
+      // عن طريق event delegation عام على document (شوف أعلى الملف).
 
       /* 🆕 أزرار الاختصار السريعة (اليوم/الأسبوع/الشهر/السنة) — بتملى
          حقلَي الكالندر تلقائيًا بنطاق التاريخ المناسب وتطبّقه فورًا */
