@@ -288,6 +288,35 @@ const initializeDatabase = async () => {
             )
         `);
 
+        /* ============================================================
+           🆕 2.11 — جدول payment_receipts (إيصالات دفع اشتراك الصيدليات)
+           ------------------------------------------------------------
+           كل صف = إيصال دفع واحد بعتته صيدلية لفترة معيّنة (شهر مثلاً).
+           status: pending (قيد المراجعة) / accepted (مقبول) / rejected
+           (مرفوض). لو الأدمين رفض ومعاه "بند الصيدلية"، بيتحدّث
+           users.status = 'suspended' في نفس الخطوة (شوف routes/payments.js).
+           عمود period بيسمح بمتابعة الحالة شهر بشهر (مين دفع الشهر ده
+           مقابل الشهر اللي فات).
+           ============================================================ */
+        await run(`
+            CREATE TABLE IF NOT EXISTS payment_receipts (
+                id SERIAL PRIMARY KEY,
+                "pharmacyId" VARCHAR(100) NOT NULL REFERENCES users(id),
+                "pharmacyName" VARCHAR(255) NOT NULL,
+                image TEXT NOT NULL,
+                amount INT DEFAULT NULL,
+                notes TEXT DEFAULT NULL,
+                period VARCHAR(20) NOT NULL,
+                status VARCHAR(50) DEFAULT 'pending',
+                "reviewedBy" VARCHAR(100) DEFAULT NULL,
+                "reviewNotes" TEXT DEFAULT NULL,
+                "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+                "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        `);
+        await run(`CREATE INDEX IF NOT EXISTS idx_payment_receipts_pharmacy ON payment_receipts ("pharmacyId")`);
+        await run(`CREATE INDEX IF NOT EXISTS idx_payment_receipts_period ON payment_receipts (period)`);
+
         // 8. --- إصلاح تلقائي لـ unique index "one_active_order_per_phone" ---
         await fixActiveOrderPhoneIndex();
 
