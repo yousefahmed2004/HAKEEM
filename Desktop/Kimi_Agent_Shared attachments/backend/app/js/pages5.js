@@ -20,15 +20,13 @@
       الهاتف/العنوان، وبيفلتر الليستات بشكل حي.
    3) كل صيدلية بتعرض اسم المسؤول والهاتف والعنوان تحت اسمها.
 
-   🆕🆕 تعديل جديد (تقسيم الشاشة):
-   4) صفحة "طلبات الدفع" بقت شاشتها مقسومة لعمودين (Panel) جنب
-      بعض. كل عمود ليه هيدر تابات خاص بيه (قيد المراجعة / لم
-      يدفعوا / دفعوا / كل الصيدليات) يقدر الأدمين يبدّل فيه من
-      غير ما يأثر في العمود التاني — يعني ممكن يحط "لم يدفعوا" في
-      الشمال و"دفعوا" في اليمين ويقارن في نفس اللحظة. البيانات
-      بتتجاب مرة واحدة في refresh() وبتتخزن، وتبديل التاب بيعيد
-      رسم العمود بس من غير ما يعمل fetch تاني (لحد ما يحصل refresh
-      فعلي بعد إجراء زي قبول/رفض/بند).
+   🆕🆕 تعديل جديد (تابات بدل الليستات التلاتة تحت بعض):
+   4) صفحة "طلبات الدفع" بقت عمود واحد بس فوقه هيدر تابات (قيد
+      المراجعة / لم يدفعوا / دفعوا / كل الصيدليات)، وتدوس على أي
+      تاب يقلبلك المحتوى تحته في نفس المكان بدل الليستات التلاتة
+      اللي كانت تحت بعض. البيانات بتتجاب مرة واحدة في refresh()
+      وبتتخزن، وتبديل التاب بيعيد رسم القايمة بس من غير ما يعمل
+      fetch تاني (لحد ما يحصل refresh فعلي بعد إجراء زي قبول/رفض/بند).
    ============================================================ */
 window.App = window.App || {};
 window.App.pages = window.App.pages || {};
@@ -40,9 +38,9 @@ window.App.pages = window.App.pages || {};
     // الصفحة اتعادت رسمها (refresh) في نفس الزيارة
     let paymentRequestsSearchQuery = "";
 
-    // 🆕 التاب الحالي في كل عمود (شمال/يمين) — بيفضل محفوظ برضه
+    // 🆕 التاب الحالي (تاب واحد بس، عمود واحد) — بيفضل محفوظ برضه
     // في نفس الزيارة حتى لو الصفحة اتعادت رسمها
-    let panelActiveTab = { left: "pending", right: "unpaid" };
+    let activePaymentsTab = "pending";
 
     const PANEL_TABS = [
         { key: "pending", label: "قيد المراجعة" },
@@ -341,18 +339,11 @@ window.App.pages = window.App.pages || {};
 
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px" id="pay-summary"></div>
 
-                    <!-- 🆕 عمودين جنب بعض، كل واحد ليه هيدر تابات خاص بيه -->
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px">
-                        <div class="card pay-panel" style="padding:18px" data-panel-root="left">
-                            <div data-panel-tabs="left" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
-                            <div data-panel-list="left">جاري التحميل...</div>
-                            <div class="small muted" data-panel-empty="left" style="display:none;padding:10px 0">لا توجد نتائج مطابقة لبحثك</div>
-                        </div>
-                        <div class="card pay-panel" style="padding:18px" data-panel-root="right">
-                            <div data-panel-tabs="right" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
-                            <div data-panel-list="right">جاري التحميل...</div>
-                            <div class="small muted" data-panel-empty="right" style="display:none;padding:10px 0">لا توجد نتائج مطابقة لبحثك</div>
-                        </div>
+                    <!-- 🆕 عمود واحد: هيدر تابات فوق، والمحتوى بيتبدل تحته -->
+                    <div class="card" style="padding:18px">
+                        <div id="pay-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
+                        <div id="pay-list">جاري التحميل...</div>
+                        <div class="small muted" id="pay-list-empty-search" style="display:none;padding:10px 0">لا توجد نتائج مطابقة لبحثك في هذه القائمة</div>
                     </div>
                 </div>`;
         },
@@ -371,26 +362,24 @@ window.App.pages = window.App.pages || {};
                 </div>`;
             }
 
-            // فلترة حيّة للصفوف اللي عليها data-search جوه أي عمود،
+            // فلترة حيّة للصفوف اللي عليها data-search جوه القايمة الحالية،
             // على نص البحث الحالي
             function applySearchFilter() {
                 const q = paymentRequestsSearchQuery.trim().toLowerCase();
-                ["left", "right"].forEach((panelKey) => {
-                    const listEl = document.querySelector(`[data-panel-list="${panelKey}"]`);
-                    const emptyEl = document.querySelector(`[data-panel-empty="${panelKey}"]`);
-                    if (!listEl) return;
-                    const rows = Array.from(listEl.querySelectorAll("[data-search]"));
-                    let visibleCount = 0;
-                    rows.forEach((row) => {
-                        const hay = row.dataset.search || "";
-                        const isMatch = q === "" || hay.includes(q);
-                        row.style.display = isMatch ? "" : "none";
-                        if (isMatch) visibleCount++;
-                    });
-                    if (emptyEl) {
-                        emptyEl.style.display = (q !== "" && rows.length > 0 && visibleCount === 0) ? "" : "none";
-                    }
+                const listEl = document.getElementById("pay-list");
+                const emptyEl = document.getElementById("pay-list-empty-search");
+                if (!listEl) return;
+                const rows = Array.from(listEl.querySelectorAll("[data-search]"));
+                let visibleCount = 0;
+                rows.forEach((row) => {
+                    const hay = row.dataset.search || "";
+                    const isMatch = q === "" || hay.includes(q);
+                    row.style.display = isMatch ? "" : "none";
+                    if (isMatch) visibleCount++;
                 });
+                if (emptyEl) {
+                    emptyEl.style.display = (q !== "" && rows.length > 0 && visibleCount === 0) ? "" : "none";
+                }
             }
 
             if (searchInput) {
@@ -467,32 +456,30 @@ window.App.pages = window.App.pages || {};
                 }
             }
 
-            // بترسم عمود واحد (شمال أو يمين): التابات + القايمة، وبتربط
+            // بترسم التابات + القايمة تحتها في نفس العمود، وبتربط
             // الأحداث المناسبة. مبتعملش fetch — بتستخدم latestData
-            function renderPanel(panelKey) {
-                const tabsEl = document.querySelector(`[data-panel-tabs="${panelKey}"]`);
-                const listEl = document.querySelector(`[data-panel-list="${panelKey}"]`);
+            function renderTabsAndList() {
+                const tabsEl = document.getElementById("pay-tabs");
+                const listEl = document.getElementById("pay-list");
                 if (!tabsEl || !listEl) return;
 
-                const activeTab = panelActiveTab[panelKey];
-
                 tabsEl.innerHTML = PANEL_TABS.map((t) => {
-                    const isActive = t.key === activeTab;
+                    const isActive = t.key === activePaymentsTab;
                     return `<button type="button" class="btn btn-sm ${isActive ? "" : "btn-soft"}"
-                                data-panel="${panelKey}" data-tab="${t.key}"
+                                data-tab="${t.key}"
                                 style="${isActive ? "background:var(--brand,#2563eb);color:#fff;border:none" : ""}">${t.label}</button>`;
                 }).join("");
 
                 tabsEl.querySelectorAll("button[data-tab]").forEach((btn) => {
                     btn.onclick = () => {
-                        panelActiveTab[panelKey] = btn.dataset.tab;
-                        renderPanel(panelKey);
+                        activePaymentsTab = btn.dataset.tab;
+                        renderTabsAndList();
                         applySearchFilter();
                     };
                 });
 
-                listEl.innerHTML = getListHTML(activeTab);
-                attachHandlersForTab(listEl, activeTab);
+                listEl.innerHTML = getListHTML(activePaymentsTab);
+                attachHandlersForTab(listEl, activePaymentsTab);
             }
 
             async function refresh() {
@@ -518,8 +505,7 @@ window.App.pages = window.App.pages || {};
                     pharmacyInfoMap,
                 };
 
-                renderPanel("left");
-                renderPanel("right");
+                renderTabsAndList();
                 applySearchFilter();
             }
 
