@@ -199,4 +199,65 @@ window.App = window.App || {};
             return apiRequest("/orders-stats");
         }
     };
+
+    /* ============================================================
+       🆕 App.api.payments — إيصالات دفع اشتراك الصيدليات
+       ------------------------------------------------------------
+       - submitReceipt: الصيدلي يرفع إيصال (صورة base64 + مبلغ/ملاحظات)
+       - myReceipts: سجل إيصالات صيدلية معينة
+       - getReceipts: كل الإيصالات (أدمين) — فلترة اختيارية بـ status/period
+       - acceptReceipt / rejectReceipt: قرار الأدمين (رفض ممكن يترفق
+         بـ banPharmacy:true عشان يبند الصيدلية في نفس الخطوة)
+       - getStatus: نظرة عامة — مين دفع ومين لسه، لفترة معينة (شهر
+         افتراضيًا)
+       ============================================================ */
+    App.api.payments = {
+        async submitReceipt(payload) {
+            return apiRequest("/payments/receipts", {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
+        },
+
+        async myReceipts(pharmacyId) {
+            try {
+                return await apiRequest(`/payments/receipts/mine/${pharmacyId}`);
+            } catch (error) {
+                return { ok: false, receipts: [] };
+            }
+        },
+
+        async getReceipts(params = {}) {
+            const qs = new URLSearchParams(
+                Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ""))
+            ).toString();
+            try {
+                return await apiRequest(`/payments/receipts${qs ? "?" + qs : ""}`);
+            } catch (error) {
+                return { ok: false, receipts: [] };
+            }
+        },
+
+        async acceptReceipt(id, reviewedBy) {
+            return apiRequest(`/payments/receipts/${id}/accept`, {
+                method: "POST",
+                body: JSON.stringify({ reviewedBy })
+            });
+        },
+
+        async rejectReceipt(id, payload) {
+            return apiRequest(`/payments/receipts/${id}/reject`, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
+        },
+
+        async getStatus(period) {
+            try {
+                return await apiRequest(`/payments/status${period ? "?period=" + encodeURIComponent(period) : ""}`);
+            } catch (error) {
+                return { ok: false, summary: {}, pharmacies: [] };
+            }
+        }
+    };
 })();
