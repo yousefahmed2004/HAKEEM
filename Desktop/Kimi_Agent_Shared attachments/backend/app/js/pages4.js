@@ -43,42 +43,6 @@ App.pages = App.pages || {};
       });
       return;
     }
-
-    // 🆕 زرار بند/إعادة تفعيل الصيدلية
-    const banBtn = e.target.closest("[data-ban-toggle]");
-    if (banBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const id = banBtn.dataset.banToggle;
-      const name = banBtn.dataset.banName;
-      const willSuspend = banBtn.dataset.banAction === "suspend";
-
-      App.ui.confirmModal({
-        title: willSuspend ? "بند الصيدلية" : "إعادة تفعيل الصيدلية",
-        message: willSuspend
-          ? `هل أنت متأكد من بند صيدلية <b>${esc(name)}</b>؟ لن يقدر أي صيدلي تابع لها يسجّل الدخول لحد ما تُعاد تفعيلها.`
-          : `هل تريد إعادة تفعيل صيدلية <b>${esc(name)}</b> والسماح لها بتسجيل الدخول مرة أخرى؟`,
-        confirmText: willSuspend ? "بند الصيدلية" : "إعادة التفعيل",
-        danger: willSuspend,
-        icon: willSuspend ? "ban" : "check",
-        onConfirm: async () => {
-          banBtn.disabled = true;
-          try {
-            await S().togglePharmacistStatus(id);
-            toast(
-              "تم",
-              willSuspend ? `تم بند صيدلية ${name} مؤقتًا` : `تم إعادة تفعيل صيدلية ${name}`,
-              willSuspend ? "info" : "success"
-            );
-            App.router.refresh();
-          } catch (err) {
-            toast("خطأ", "تعذر تنفيذ العملية، حاول مرة أخرى", "warning");
-            banBtn.disabled = false;
-          }
-        },
-      });
-    }
   });
 
   /* ============================================================
@@ -211,13 +175,6 @@ App.pages = App.pages || {};
               <button class="toggle-top-search vis-toggle ${pharmacyTopSearchStates[p.id] !== false ? "is-show" : "is-hide"}" data-pharmacy-id="${esc(p.id)}" title="عرض/إخفاء الخدمات الأكثر طلبًا">
                 ${icon("eye", 14)} ${pharmacyTopSearchStates[p.id] !== false ? "عرض" : "إخفاء"}
               </button>
-              <button class="btn btn-sm"
-                      style="background:#ef4444;color:#fff;border:none"
-                      data-ban-toggle="${esc(p.id)}"
-                      data-ban-name="${esc(p.pharmacyName)}"
-                      data-ban-action="suspend">
-                ${icon("ban", 14)} بند الصيدلية
-              </button>
               <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
             </div>
           </div>
@@ -276,8 +233,7 @@ App.pages = App.pages || {};
           if (
             !e.target.closest("a") &&
             !e.target.closest(".toggle-top-search") &&
-            !e.target.closest(".avatar-zoom") &&
-            !e.target.closest("[data-ban-toggle]")
+            !e.target.closest(".avatar-zoom")
           ) {
             const id = card.dataset.pharmacyId;
             App.router.go(`#/pharmacy/${id}`);
@@ -285,9 +241,8 @@ App.pages = App.pages || {};
         });
       });
 
-      // 🆕 تكبير الأفاتار وزرار بند الصيدلية بيشتغلوا عن طريق
-      // event delegation عام على document (شوف أعلى الملف) — مفيش
-      // داعي نعلّق listeners هنا تاني.
+      // 🆕 تكبير الأفاتار بيشتغل عن طريق event delegation عام على
+      // document (شوف أعلى الملف) — مفيش داعي نعلّق listeners هنا تاني.
 
       // معالج زر toggle التوب سيرش
       document.querySelectorAll(".toggle-top-search").forEach((btn) => {
@@ -488,13 +443,6 @@ App.pages = App.pages || {};
             <span class="badge ${isActive ? "badge-accepted" : "badge-rejected"}">
               ${isActive ? icon("check", 13) : icon("ban", 13)} ${isActive ? "نشطة" : "مبندة"}
             </span>
-            <button class="btn btn-sm"
-                    style="${isActive ? "background:#ef4444;color:#fff;border:none" : ""}"
-                    data-ban-toggle="${esc(pharmacy.id)}"
-                    data-ban-name="${esc(pharmacy.pharmacyName)}"
-                    data-ban-action="${isActive ? "suspend" : "activate"}">
-              ${isActive ? icon("ban", 14) + " بند الصيدلية" : icon("check", 14) + " إعادة تفعيل"}
-            </button>
             <a href="#/pharmacies" class="btn btn-soft">← العودة</a>
           </div>
         </div>
@@ -645,8 +593,8 @@ App.pages = App.pages || {};
     },
 
     mount(user, pharmacyId) {
-      // 🆕 تكبير الأفاتار وزرار بند/إعادة تفعيل الصيدلية بيشتغلوا
-      // عن طريق event delegation عام على document (شوف أعلى الملف).
+      // 🆕 تكبير الأفاتار بيشتغل عن طريق event delegation عام على
+      // document (شوف أعلى الملف).
 
       /* 🆕 أزرار الاختصار السريعة (اليوم/الأسبوع/الشهر/السنة) — بتملى
          حقلَي الكالندر تلقائيًا بنطاق التاريخ المناسب وتطبّقه فورًا */
