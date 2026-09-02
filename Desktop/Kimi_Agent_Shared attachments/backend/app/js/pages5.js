@@ -12,16 +12,23 @@
    في app.js — راجعها بسرعة بعد التركيب وعدّل أي كلاس مايتماشاش مع
    style.css عندك.
 
-   🆕 تعديلات:
-   1) صورة الإيصال بقت بتتفتح في lightbox (بلور + X للإغلاق) بدل
-      ما تفتح تاب جديد بـ window.open — عن طريق App.ui.imageLightbox
-      الموجودة في ui.js، مع event delegation على document زي نفس
-      أسلوب pages4.js.
-   2) سيرش بار في صفحة "طلبات الدفع" (الأدمين) للبحث باسم الصيدلية/
-      المسؤول/الهاتف/العنوان، وبيفلتر الليستات التلاتة (قيد المراجعة
-      / لم تدفع بعد / كل الصيدليات) بشكل حي.
-   3) كل صيدلية في صفحة "طلبات الدفع" بقت بتعرض اسم المسؤول والهاتف
-      والعنوان تحت اسم الصيدلية مباشرة، مش اسم الصيدلية لوحده بس.
+   🆕 تعديلات سابقة:
+   1) صورة الإيصال بتتفتح في lightbox (بلور + X للإغلاق) بدل
+      window.open — عن طريق App.ui.imageLightbox، مع event
+      delegation على document زي نفس أسلوب pages4.js.
+   2) سيرش بار في صفحة "طلبات الدفع" للبحث باسم الصيدلية/المسؤول/
+      الهاتف/العنوان، وبيفلتر الليستات بشكل حي.
+   3) كل صيدلية بتعرض اسم المسؤول والهاتف والعنوان تحت اسمها.
+
+   🆕🆕 تعديل جديد (تقسيم الشاشة):
+   4) صفحة "طلبات الدفع" بقت شاشتها مقسومة لعمودين (Panel) جنب
+      بعض. كل عمود ليه هيدر تابات خاص بيه (قيد المراجعة / لم
+      يدفعوا / دفعوا / كل الصيدليات) يقدر الأدمين يبدّل فيه من
+      غير ما يأثر في العمود التاني — يعني ممكن يحط "لم يدفعوا" في
+      الشمال و"دفعوا" في اليمين ويقارن في نفس اللحظة. البيانات
+      بتتجاب مرة واحدة في refresh() وبتتخزن، وتبديل التاب بيعيد
+      رسم العمود بس من غير ما يعمل fetch تاني (لحد ما يحصل refresh
+      فعلي بعد إجراء زي قبول/رفض/بند).
    ============================================================ */
 window.App = window.App || {};
 window.App.pages = window.App.pages || {};
@@ -29,15 +36,24 @@ window.App.pages = window.App.pages || {};
 (function () {
     const { icon, esc, toast, timeAgo } = App.ui;
 
-    // 🆕 نص البحث الحالي في صفحة "طلبات الدفع" — بيفضل محفوظ لو
+    // نص البحث الحالي في صفحة "طلبات الدفع" — بيفضل محفوظ لو
     // الصفحة اتعادت رسمها (refresh) في نفس الزيارة
     let paymentRequestsSearchQuery = "";
 
+    // 🆕 التاب الحالي في كل عمود (شمال/يمين) — بيفضل محفوظ برضه
+    // في نفس الزيارة حتى لو الصفحة اتعادت رسمها
+    let panelActiveTab = { left: "pending", right: "unpaid" };
+
+    const PANEL_TABS = [
+        { key: "pending", label: "قيد المراجعة" },
+        { key: "unpaid", label: "لم يدفعوا" },
+        { key: "paid", label: "دفعوا" },
+        { key: "all", label: "كل الصيدليات" },
+    ];
+
     /* ============================================================
-       🆕 event delegation عام على document لفتح صورة أي إيصال دفع
-       في lightbox (بلور للخلفية + زرار X للإغلاق) بدل ما تفتح في
-       تاب جديد. بتشتغل مع أي عنصر عليه data-receipt-zoom مهما كانت
-       الصفحة اتعادت رسمها، وبتتسجل مرة واحدة بس عند تحميل السكريبت.
+       event delegation عام على document لفتح صورة أي إيصال دفع
+       في lightbox بدل ما تفتح في تاب جديد.
        ============================================================ */
     document.addEventListener("click", (e) => {
         const zoomEl = e.target.closest("[data-receipt-zoom]");
@@ -68,7 +84,7 @@ window.App.pages = window.App.pages || {};
         });
     }
 
-    // 🆕 دالة مساعدة لبناء نص قابل للبحث لصف صيدلية معين (اسم
+    // دالة مساعدة لبناء نص قابل للبحث لصف صيدلية معين (اسم
     // الصيدلية + اسم المسؤول + الهاتف + العنوان)
     function buildPharmacySearchBlob(p) {
         return [p.pharmacyName, p.responsibleName, p.phone, p.address]
@@ -77,8 +93,8 @@ window.App.pages = window.App.pages || {};
             .toLowerCase();
     }
 
-    // 🆕 سطر بيانات الصيدلية (المسؤول + الهاتف + العنوان) بيتكرر في
-    // أكتر من مكان في صفحة "طلبات الدفع"، فبنينا دالة واحدة بتطلعه
+    // سطر بيانات الصيدلية (المسؤول + الهاتف + العنوان) بيتكرر في
+    // أكتر من مكان، فبنينا دالة واحدة بتطلعه
     function pharmacyMetaLines(p) {
         return `
             ${p.responsibleName ? `<div class="small muted">${esc(p.responsibleName)}</div>` : ""}
@@ -88,7 +104,102 @@ window.App.pages = window.App.pages || {};
     }
 
     /* ============================================================
-       صفحة "المدفوعات" — الصيدلي
+       🆕 دوال بناء عناصر كل تاب (list items) — كل واحدة بترجع HTML
+       فقط، بدون منطق ربط أحداث (dataset.search بيتحط عليها عشان
+       السيرش الحي يقدر يفلتر أي عمود موجودة فيه)
+       ============================================================ */
+
+    function pendingItemsHTML(receipts, infoMap) {
+        if (!receipts.length) {
+            return `<div class="small muted">لا توجد إيصالات في انتظار المراجعة 🎉</div>`;
+        }
+        return receipts.map((r) => {
+            const info = infoMap[r.pharmacyId] || {};
+            return `
+            <div class="card" style="padding:12px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start"
+                 data-search="${esc(buildPharmacySearchBlob({ pharmacyName: r.pharmacyName, ...info }))}">
+                <img src="${r.image}"
+                     style="width:80px;height:80px;object-fit:cover;border-radius:8px;cursor:zoom-in;flex-shrink:0"
+                     data-receipt-zoom
+                     data-image="${r.image}"
+                     data-name="${esc(r.pharmacyName)}" />
+                <div style="flex:1;min-width:0">
+                    <div class="bold">${esc(r.pharmacyName)}</div>
+                    ${pharmacyMetaLines(info)}
+                    <div class="small muted" style="margin-top:4px">${r.amount ? r.amount + " جنيه — " : ""}${timeAgo(r.createdAt)}</div>
+                    ${r.notes ? `<div class="small">${esc(r.notes)}</div>` : ""}
+                    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
+                        <button class="btn btn-sm" style="background:#10b981;color:#fff;border:none" data-accept="${r.id}">قبول الإيصال</button>
+                        <button class="btn btn-sm" style="background:#ef4444;color:#fff;border:none" data-reject="${r.id}">رفض</button>
+                        <label class="small" style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                            <input type="checkbox" data-ban-check="${r.id}" /> بند الصيدلية عند الرفض
+                        </label>
+                    </div>
+                </div>
+            </div>`;
+        }).join("");
+    }
+
+    function unpaidItemsHTML(list) {
+        if (!list.length) {
+            return `<div class="small muted">كل الصيدليات دفعت أو قيد المراجعة 🎉</div>`;
+        }
+        return list.map((p) => `
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);gap:10px;flex-wrap:wrap"
+                 data-search="${esc(buildPharmacySearchBlob(p))}">
+                <div style="min-width:0">
+                    <div class="bold small">${esc(p.pharmacyName)}</div>
+                    ${pharmacyMetaLines(p)}
+                    <div class="small muted" style="margin-top:2px">${p.paymentStatus === "rejected" ? "تم رفض آخر إيصال" : "لم يُرسل إيصال"}</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+                    ${badge(p.accountStatus === "suspended" ? "مبندة" : "نشطة", p.accountStatus === "suspended" ? "#ef4444" : "#10b981")}
+                    ${p.accountStatus !== "suspended"
+                        ? `<button class="btn btn-sm" style="background:#ef4444;color:#fff;border:none" data-ban="${p.pharmacyId}">بند مؤقتًا</button>`
+                        : `<button class="btn btn-sm btn-soft" data-unban="${p.pharmacyId}">إعادة تفعيل</button>`}
+                </div>
+            </div>`).join("");
+    }
+
+    function paidItemsHTML(list) {
+        if (!list.length) {
+            return `<div class="small muted">لا توجد صيدليات دفعت في هذه الفترة بعد</div>`;
+        }
+        return list.map((p) => `
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);gap:10px;flex-wrap:wrap"
+                 data-search="${esc(buildPharmacySearchBlob(p))}">
+                <div style="min-width:0">
+                    <div class="bold small">${esc(p.pharmacyName)}</div>
+                    ${pharmacyMetaLines(p)}
+                    ${p.lastSubmittedAt ? `<div class="small muted" style="margin-top:2px">آخر إيصال ${timeAgo(p.lastSubmittedAt)}</div>` : ""}
+                </div>
+                ${badge("تم القبول", "#10b981")}
+            </div>`).join("");
+    }
+
+    function allItemsHTML(list) {
+        if (!list.length) {
+            return `<div class="small muted">لا توجد بيانات</div>`;
+        }
+        return list.map((p) => {
+            const st = STATUS_META[p.paymentStatus] || STATUS_META.not_submitted;
+            return `
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);gap:10px;flex-wrap:wrap"
+                     data-search="${esc(buildPharmacySearchBlob(p))}">
+                    <div style="min-width:0">
+                        <div class="small bold">${esc(p.pharmacyName)}</div>
+                        ${pharmacyMetaLines(p)}
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+                        ${badge(st.text, st.color)}
+                        ${badge(p.accountStatus === "suspended" ? "مبندة" : "نشطة", p.accountStatus === "suspended" ? "#ef4444" : "#10b981")}
+                    </div>
+                </div>`;
+        }).join("");
+    }
+
+    /* ============================================================
+       صفحة "المدفوعات" — الصيدلي (بدون تغيير)
        ============================================================ */
     App.pages.payments = {
         title: "المدفوعات",
@@ -206,6 +317,7 @@ window.App.pages = window.App.pages || {};
 
     /* ============================================================
        صفحة "طلبات الدفع" — الأدمين
+       🆕 الشاشة بقت مقسومة لعمودين، كل عمود ليه تابات مستقلة
        ============================================================ */
     App.pages.paymentRequests = {
         title: "طلبات الدفع",
@@ -214,7 +326,7 @@ window.App.pages = window.App.pages || {};
         render() {
             return `
                 <div style="display:grid;gap:18px">
-                    <!-- 🆕 سيرش بار للبحث عن الصيدليات (بالاسم / المسؤول / الهاتف / العنوان) -->
+                    <!-- سيرش بار للبحث عن الصيدليات (بالاسم / المسؤول / الهاتف / العنوان) -->
                     <div class="pay-search-bar" style="position:relative;max-width:420px">
                         <span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--text-muted);pointer-events:none;display:flex">${icon("search", 16)}</span>
                         <input
@@ -229,31 +341,28 @@ window.App.pages = window.App.pages || {};
 
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px" id="pay-summary"></div>
 
-                    <div class="card" style="padding:18px">
-                        <div class="bold" style="font-size:16px;margin-bottom:10px">إيصالات قيد المراجعة</div>
-                        <div id="pay-pending-list">جاري التحميل...</div>
-                        <div class="small muted" id="pay-pending-empty-search" style="display:none;padding:10px 0">لا توجد نتائج مطابقة لبحثك في هذه القائمة</div>
-                    </div>
-
-                    <div class="card" style="padding:18px">
-                        <div class="bold" style="font-size:16px;margin-bottom:10px">الصيدليات التي لم تدفع بعد</div>
-                        <div id="pay-unpaid-list">جاري التحميل...</div>
-                        <div class="small muted" id="pay-unpaid-empty-search" style="display:none;padding:10px 0">لا توجد نتائج مطابقة لبحثك في هذه القائمة</div>
-                    </div>
-
-                    <div class="card" style="padding:18px">
-                        <div class="bold" style="font-size:16px;margin-bottom:10px">كل الصيدليات — حالة الفترة الحالية</div>
-                        <div id="pay-all-list">جاري التحميل...</div>
-                        <div class="small muted" id="pay-all-empty-search" style="display:none;padding:10px 0">لا توجد نتائج مطابقة لبحثك في هذه القائمة</div>
+                    <!-- 🆕 عمودين جنب بعض، كل واحد ليه هيدر تابات خاص بيه -->
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px">
+                        <div class="card pay-panel" style="padding:18px" data-panel-root="left">
+                            <div data-panel-tabs="left" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
+                            <div data-panel-list="left">جاري التحميل...</div>
+                            <div class="small muted" data-panel-empty="left" style="display:none;padding:10px 0">لا توجد نتائج مطابقة لبحثك</div>
+                        </div>
+                        <div class="card pay-panel" style="padding:18px" data-panel-root="right">
+                            <div data-panel-tabs="right" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
+                            <div data-panel-list="right">جاري التحميل...</div>
+                            <div class="small muted" data-panel-empty="right" style="display:none;padding:10px 0">لا توجد نتائج مطابقة لبحثك</div>
+                        </div>
                     </div>
                 </div>`;
         },
         async mount(user) {
             const summaryEl = document.getElementById("pay-summary");
-            const pendingEl = document.getElementById("pay-pending-list");
-            const unpaidEl = document.getElementById("pay-unpaid-list");
-            const allEl = document.getElementById("pay-all-list");
             const searchInput = document.getElementById("pay-search-input");
+
+            // 🆕 آخر بيانات جاية من السيرفر، متخزنة عشان تبديل التابات
+            // ما يحتاجش يعمل fetch جديد كل مرة
+            let latestData = { pharmacies: [], pendingReceipts: [], pharmacyInfoMap: {} };
 
             function summaryCard(label, value, color) {
                 return `<div class="card" style="padding:14px;text-align:center">
@@ -262,18 +371,15 @@ window.App.pages = window.App.pages || {};
                 </div>`;
             }
 
-            /* 🆕 فلترة حيّة للصفوف اللي عليها data-search جوه الحاويات
-               التلاتة، على نص البحث الحالي. بتتنادى بعد كل refresh()
-               وكمان لايف مع الكتابة في حقل البحث. */
+            // فلترة حيّة للصفوف اللي عليها data-search جوه أي عمود،
+            // على نص البحث الحالي
             function applySearchFilter() {
                 const q = paymentRequestsSearchQuery.trim().toLowerCase();
-
-                [
-                    { container: pendingEl, emptyId: "pay-pending-empty-search" },
-                    { container: unpaidEl, emptyId: "pay-unpaid-empty-search" },
-                    { container: allEl, emptyId: "pay-all-empty-search" },
-                ].forEach(({ container, emptyId }) => {
-                    const rows = Array.from(container.querySelectorAll("[data-search]"));
+                ["left", "right"].forEach((panelKey) => {
+                    const listEl = document.querySelector(`[data-panel-list="${panelKey}"]`);
+                    const emptyEl = document.querySelector(`[data-panel-empty="${panelKey}"]`);
+                    if (!listEl) return;
+                    const rows = Array.from(listEl.querySelectorAll("[data-search]"));
                     let visibleCount = 0;
                     rows.forEach((row) => {
                         const hay = row.dataset.search || "";
@@ -281,7 +387,6 @@ window.App.pages = window.App.pages || {};
                         row.style.display = isMatch ? "" : "none";
                         if (isMatch) visibleCount++;
                     });
-                    const emptyEl = document.getElementById(emptyId);
                     if (emptyEl) {
                         emptyEl.style.display = (q !== "" && rows.length > 0 && visibleCount === 0) ? "" : "none";
                     }
@@ -294,6 +399,100 @@ window.App.pages = window.App.pages || {};
                     paymentRequestsSearchQuery = e.target.value;
                     applySearchFilter();
                 });
+            }
+
+            // بيرجع HTML القايمة المناسبة للتاب المطلوب من البيانات المخزنة
+            function getListHTML(tab) {
+                switch (tab) {
+                    case "pending":
+                        return pendingItemsHTML(latestData.pendingReceipts, latestData.pharmacyInfoMap);
+                    case "unpaid":
+                        return unpaidItemsHTML(latestData.pharmacies.filter(
+                            (p) => p.paymentStatus === "not_submitted" || p.paymentStatus === "rejected"
+                        ));
+                    case "paid":
+                        return paidItemsHTML(latestData.pharmacies.filter((p) => p.paymentStatus === "accepted"));
+                    case "all":
+                        return allItemsHTML(latestData.pharmacies);
+                    default:
+                        return "";
+                }
+            }
+
+            // بتربط أزرار قبول/رفض (لو تاب "pending") أو بند/إعادة تفعيل
+            // (لو تاب "unpaid") بعد ما يتحط الـ HTML في العمود
+            function attachHandlersForTab(listEl, tab) {
+                if (tab === "pending") {
+                    listEl.querySelectorAll("[data-accept]").forEach((btn) => {
+                        btn.onclick = async () => {
+                            btn.disabled = true;
+                            const res = await App.api.payments.acceptReceipt(btn.dataset.accept, user.id);
+                            if (res.ok) { toast("تم", "تم قبول الإيصال", "success"); refresh(); }
+                            else { toast("خطأ", res.error || "فشل القبول", "warning"); btn.disabled = false; }
+                        };
+                    });
+                    listEl.querySelectorAll("[data-reject]").forEach((btn) => {
+                        btn.onclick = async () => {
+                            const id = btn.dataset.reject;
+                            const banCheck = listEl.querySelector(`[data-ban-check="${id}"]`);
+                            const shouldBan = banCheck ? banCheck.checked : false;
+                            if (!confirm(shouldBan ? "تأكيد رفض الإيصال وبند الصيدلية؟" : "تأكيد رفض الإيصال؟")) return;
+                            btn.disabled = true;
+                            const res = await App.api.payments.rejectReceipt(id, {
+                                reviewedBy: user.id,
+                                banPharmacy: shouldBan,
+                            });
+                            if (res.ok) {
+                                toast("تم", shouldBan ? "تم رفض الإيصال وبند الصيدلية" : "تم رفض الإيصال", "info");
+                                refresh();
+                            } else { toast("خطأ", res.error || "فشل الرفض", "warning"); btn.disabled = false; }
+                        };
+                    });
+                } else if (tab === "unpaid") {
+                    listEl.querySelectorAll("[data-ban]").forEach((btn) => {
+                        btn.onclick = async () => {
+                            if (!confirm("تأكيد بند هذه الصيدلية مؤقتًا لحد ما تدفع؟")) return;
+                            await App.api.updateUserStatus(btn.dataset.ban, "suspended");
+                            toast("تم", "تم بند الصيدلية مؤقتًا", "info");
+                            refresh();
+                        };
+                    });
+                    listEl.querySelectorAll("[data-unban]").forEach((btn) => {
+                        btn.onclick = async () => {
+                            await App.api.updateUserStatus(btn.dataset.unban, "active");
+                            toast("تم", "تم إعادة تفعيل الصيدلية", "success");
+                            refresh();
+                        };
+                    });
+                }
+            }
+
+            // بترسم عمود واحد (شمال أو يمين): التابات + القايمة، وبتربط
+            // الأحداث المناسبة. مبتعملش fetch — بتستخدم latestData
+            function renderPanel(panelKey) {
+                const tabsEl = document.querySelector(`[data-panel-tabs="${panelKey}"]`);
+                const listEl = document.querySelector(`[data-panel-list="${panelKey}"]`);
+                if (!tabsEl || !listEl) return;
+
+                const activeTab = panelActiveTab[panelKey];
+
+                tabsEl.innerHTML = PANEL_TABS.map((t) => {
+                    const isActive = t.key === activeTab;
+                    return `<button type="button" class="btn btn-sm ${isActive ? "" : "btn-soft"}"
+                                data-panel="${panelKey}" data-tab="${t.key}"
+                                style="${isActive ? "background:var(--brand,#2563eb);color:#fff;border:none" : ""}">${t.label}</button>`;
+                }).join("");
+
+                tabsEl.querySelectorAll("button[data-tab]").forEach((btn) => {
+                    btn.onclick = () => {
+                        panelActiveTab[panelKey] = btn.dataset.tab;
+                        renderPanel(panelKey);
+                        applySearchFilter();
+                    };
+                });
+
+                listEl.innerHTML = getListHTML(activeTab);
+                attachHandlersForTab(listEl, activeTab);
             }
 
             async function refresh() {
@@ -309,125 +508,18 @@ window.App.pages = window.App.pages || {};
                     summaryCard("قيد المراجعة", summary.pending || 0, "#f59e0b") +
                     summaryCard("لم يدفعوا", summary.notSubmitted || 0, "#ef4444");
 
-                /* 🆕 خريطة بيانات الصيدليات (مسؤول/هاتف/عنوان) عشان
-                   نقدر نعرضها جنب أي إيصال بمجرد معرفة pharmacyId،
-                   من غير ما نحتاج نعدّل جدول payment_receipts */
                 const pharmacies = statusRes.pharmacies || [];
                 const pharmacyInfoMap = {};
                 pharmacies.forEach((p) => { pharmacyInfoMap[p.pharmacyId] = p; });
 
-                /* إيصالات قيد المراجعة */
-                const pendingReceipts = pendingRes.receipts || [];
-                pendingEl.innerHTML = pendingReceipts.length
-                    ? pendingReceipts.map((r) => {
-                        const info = pharmacyInfoMap[r.pharmacyId] || {};
-                        return `
-                        <div class="card" style="padding:12px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start"
-                             data-search="${esc(buildPharmacySearchBlob({ pharmacyName: r.pharmacyName, ...info }))}">
-                            <img src="${r.image}"
-                                 style="width:90px;height:90px;object-fit:cover;border-radius:8px;cursor:zoom-in"
-                                 data-receipt-zoom
-                                 data-image="${r.image}"
-                                 data-name="${esc(r.pharmacyName)}" />
-                            <div style="flex:1;min-width:0">
-                                <div class="bold">${esc(r.pharmacyName)}</div>
-                                ${pharmacyMetaLines(info)}
-                                <div class="small muted" style="margin-top:4px">${r.amount ? r.amount + " جنيه — " : ""}${timeAgo(r.createdAt)}</div>
-                                ${r.notes ? `<div class="small">${esc(r.notes)}</div>` : ""}
-                                <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
-                                    <button class="btn btn-sm" style="background:#10b981;color:#fff;border:none" data-accept="${r.id}">قبول الإيصال</button>
-                                    <button class="btn btn-sm" style="background:#ef4444;color:#fff;border:none" data-reject="${r.id}">رفض</button>
-                                    <label class="small" style="display:flex;align-items:center;gap:4px;cursor:pointer">
-                                        <input type="checkbox" data-ban-check="${r.id}" /> بند الصيدلية عند الرفض
-                                    </label>
-                                </div>
-                            </div>
-                        </div>`;
-                    }).join("")
-                    : `<div class="small muted">لا توجد إيصالات في انتظار المراجعة 🎉</div>`;
+                latestData = {
+                    pharmacies,
+                    pendingReceipts: pendingRes.receipts || [],
+                    pharmacyInfoMap,
+                };
 
-                pendingEl.querySelectorAll("[data-accept]").forEach((btn) => {
-                    btn.onclick = async () => {
-                        btn.disabled = true;
-                        const res = await App.api.payments.acceptReceipt(btn.dataset.accept, user.id);
-                        if (res.ok) { toast("تم", "تم قبول الإيصال", "success"); refresh(); }
-                        else { toast("خطأ", res.error || "فشل القبول", "warning"); btn.disabled = false; }
-                    };
-                });
-                pendingEl.querySelectorAll("[data-reject]").forEach((btn) => {
-                    btn.onclick = async () => {
-                        const id = btn.dataset.reject;
-                        const banCheck = pendingEl.querySelector(`[data-ban-check="${id}"]`);
-                        const shouldBan = banCheck ? banCheck.checked : false;
-                        if (!confirm(shouldBan ? "تأكيد رفض الإيصال وبند الصيدلية؟" : "تأكيد رفض الإيصال؟")) return;
-                        btn.disabled = true;
-                        const res = await App.api.payments.rejectReceipt(id, {
-                            reviewedBy: user.id,
-                            banPharmacy: shouldBan,
-                        });
-                        if (res.ok) {
-                            toast("تم", shouldBan ? "تم رفض الإيصال وبند الصيدلية" : "تم رفض الإيصال", "info");
-                            refresh();
-                        } else { toast("خطأ", res.error || "فشل الرفض", "warning"); btn.disabled = false; }
-                    };
-                });
-
-                /* الصيدليات اللي لسه ما دفعتش (أو اتُرفض إيصالها) */
-                const unpaid = pharmacies.filter((p) => p.paymentStatus === "not_submitted" || p.paymentStatus === "rejected");
-                unpaidEl.innerHTML = unpaid.length
-                    ? unpaid.map((p) => `
-                        <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);gap:10px;flex-wrap:wrap"
-                             data-search="${esc(buildPharmacySearchBlob(p))}">
-                            <div style="min-width:0">
-                                <div class="bold small">${esc(p.pharmacyName)}</div>
-                                ${pharmacyMetaLines(p)}
-                                <div class="small muted" style="margin-top:2px">${p.paymentStatus === "rejected" ? "تم رفض آخر إيصال" : "لم يُرسل إيصال"}</div>
-                            </div>
-                            <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
-                                ${badge(p.accountStatus === "suspended" ? "مبندة" : "نشطة", p.accountStatus === "suspended" ? "#ef4444" : "#10b981")}
-                                ${p.accountStatus !== "suspended"
-                                    ? `<button class="btn btn-sm" style="background:#ef4444;color:#fff;border:none" data-ban="${p.pharmacyId}">بند مؤقتًا</button>`
-                                    : `<button class="btn btn-sm btn-soft" data-unban="${p.pharmacyId}">إعادة تفعيل</button>`}
-                            </div>
-                        </div>`).join("")
-                    : `<div class="small muted">كل الصيدليات دفعت أو قيد المراجعة 🎉</div>`;
-
-                unpaidEl.querySelectorAll("[data-ban]").forEach((btn) => {
-                    btn.onclick = async () => {
-                        if (!confirm("تأكيد بند هذه الصيدلية مؤقتًا لحد ما تدفع؟")) return;
-                        await App.api.updateUserStatus(btn.dataset.ban, "suspended");
-                        toast("تم", "تم بند الصيدلية مؤقتًا", "info");
-                        refresh();
-                    };
-                });
-                unpaidEl.querySelectorAll("[data-unban]").forEach((btn) => {
-                    btn.onclick = async () => {
-                        await App.api.updateUserStatus(btn.dataset.unban, "active");
-                        toast("تم", "تم إعادة تفعيل الصيدلية", "success");
-                        refresh();
-                    };
-                });
-
-                /* كل الصيدليات — نظرة عامة، دلوقتي مع بيانات كاملة */
-                allEl.innerHTML = pharmacies.length
-                    ? pharmacies.map((p) => {
-                        const st = STATUS_META[p.paymentStatus] || STATUS_META.not_submitted;
-                        return `
-                            <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);gap:10px;flex-wrap:wrap"
-                                 data-search="${esc(buildPharmacySearchBlob(p))}">
-                                <div style="min-width:0">
-                                    <div class="small bold">${esc(p.pharmacyName)}</div>
-                                    ${pharmacyMetaLines(p)}
-                                </div>
-                                <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
-                                    ${badge(st.text, st.color)}
-                                    ${badge(p.accountStatus === "suspended" ? "مبندة" : "نشطة", p.accountStatus === "suspended" ? "#ef4444" : "#10b981")}
-                                </div>
-                            </div>`;
-                    }).join("")
-                    : `<div class="small muted">لا توجد بيانات</div>`;
-
-                // 🆕 نطبّق نص البحث المحفوظ (لو موجود) على الليستات المتجددة
+                renderPanel("left");
+                renderPanel("right");
                 applySearchFilter();
             }
 
