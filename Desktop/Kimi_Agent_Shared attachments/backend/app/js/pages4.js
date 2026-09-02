@@ -23,6 +23,75 @@ App.pages = App.pages || {};
   let pharmaciesSearchQuery = "";
 
   /* ============================================================
+     🆕 attachBanHandlers / attachAvatarZoomHandlers
+     ------------------------------------------------------------
+     دالتين مساعدتين مشتركتين بين صفحة القائمة (pharmacies) وصفحة
+     التفاصيل (pharmacyDetails) عشان منكررش نفس منطق الـ event
+     listeners في المكانين.
+     ============================================================ */
+
+  // 🆕 تكبير أفاتار الصيدلية (بلور للخلفية + تكبير) — على أي عنصر
+  // عليه data-avatar-zoom مع بيانات الصيدلية في data-* attributes
+  function attachAvatarZoomHandlers(root = document) {
+    root.querySelectorAll("[data-avatar-zoom]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        App.ui.avatarLightbox({
+          name: el.dataset.name,
+          color: el.dataset.color,
+          phone: el.dataset.phone,
+          address: el.dataset.address,
+          subtitle: el.dataset.subtitle,
+        });
+      });
+    });
+  }
+
+  // 🆕 زرار "بند الصيدلية" — بيستخدم App.store.togglePharmacistStatus
+  // الموجودة أصلاً (نفس المنطق المستخدم في صفحة "طلبات الدفع")، واللي
+  // بتقفل تسجيل الدخول فورًا (status = "suspended") لحد ما حد يعيد
+  // تفعيل الحساب تاني. بعد النجاح بنعمل refresh للصفحة عشان أي تغيير
+  // في الحالة يبان فورًا (زي اختفاء الكارت من قائمة "الصيدليات المفعّلة").
+  function attachBanHandlers(root = document) {
+    root.querySelectorAll("[data-ban-toggle]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const id = btn.dataset.banToggle;
+        const name = btn.dataset.banName;
+        const willSuspend = btn.dataset.banAction === "suspend";
+
+        App.ui.confirmModal({
+          title: willSuspend ? "بند الصيدلية" : "إعادة تفعيل الصيدلية",
+          message: willSuspend
+            ? `هل أنت متأكد من بند صيدلية <b>${esc(name)}</b>؟ لن يقدر أي صيدلي تابع لها يسجّل الدخول لحد ما تُعاد تفعيلها.`
+            : `هل تريد إعادة تفعيل صيدلية <b>${esc(name)}</b> والسماح لها بتسجيل الدخول مرة أخرى؟`,
+          confirmText: willSuspend ? "بند الصيدلية" : "إعادة التفعيل",
+          danger: willSuspend,
+          icon: willSuspend ? "ban" : "check",
+          onConfirm: async () => {
+            btn.disabled = true;
+            try {
+              await S().togglePharmacistStatus(id);
+              toast(
+                "تم",
+                willSuspend ? `تم بند صيدلية ${name} مؤقتًا` : `تم إعادة تفعيل صيدلية ${name}`,
+                willSuspend ? "info" : "success"
+              );
+              App.router.refresh();
+            } catch (err) {
+              toast("خطأ", "تعذر تنفيذ العملية، حاول مرة أخرى", "warning");
+              btn.disabled = false;
+            }
+          },
+        });
+      });
+    });
+  }
+
+  /* ============================================================
      🆕 أدوات مساعدة لنطاق التاريخ (Date Range) — بتغذي حقلَي
      <input type="date"> اللي بيفتحوا كالندر أصلي في المتصفح
      ============================================================ */
@@ -105,7 +174,16 @@ App.pages = App.pages || {};
         <div class="card-item pharmacy-card" data-pharmacy-id="${esc(p.id)}" data-search="${esc(buildSearchBlob(p))}">
           <div class="card-header">
             <div style="display:flex;align-items:center;gap:12px;flex:1">
-              ${avatar(p.pharmacyName, p.color, "avatar-lg")}
+              <div class="avatar-zoom"
+                   data-avatar-zoom
+                   data-name="${esc(p.pharmacyName)}"
+                   data-subtitle="${esc(p.name)}"
+                   data-color="${esc(p.color)}"
+                   data-phone="${esc(p.phone || "")}"
+                   data-address="${esc(p.address || "")}"
+                   title="اضغط للتكبير">
+                ${avatar(p.pharmacyName, p.color, "avatar-lg")}
+              </div>
               <div>
                 <div class="card-title">${esc(p.pharmacyName)}</div>
                 <div class="card-sub">${esc(p.name)}</div>
@@ -132,16 +210,23 @@ App.pages = App.pages || {};
             <span class="badge badge-rejected">${icon("x", 14)} ${stats.rejected} مرفوضة</span>
           </div>
 
-          <div class="card-footer" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="card-footer" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
             <div style="display:flex;align-items:center;gap:8px">
               <div class="execution-ring small" style="--ring-value:${executionRate};--ring-color:${executionRate > 60 ? "#10b981" : executionRate > 40 ? "#f59e0b" : "#ef4444"}">
                 <span>${executionRate}%</span>
               </div>
               <div class="small">معدل التنفيذ</div>
             </div>
-            <div style="display:flex;gap:8px;align-items:center">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <button class="toggle-top-search vis-toggle ${pharmacyTopSearchStates[p.id] !== false ? "is-show" : "is-hide"}" data-pharmacy-id="${esc(p.id)}" title="عرض/إخفاء الخدمات الأكثر طلبًا">
                 ${icon("eye", 14)} ${pharmacyTopSearchStates[p.id] !== false ? "عرض" : "إخفاء"}
+              </button>
+              <button class="btn btn-sm"
+                      style="background:#ef4444;color:#fff;border:none"
+                      data-ban-toggle="${esc(p.id)}"
+                      data-ban-name="${esc(p.pharmacyName)}"
+                      data-ban-action="suspend">
+                ${icon("ban", 14)} بند الصيدلية
               </button>
               <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
             </div>
@@ -198,12 +283,23 @@ App.pages = App.pages || {};
       // معالج النقر على بطاقة الصيدلية (للانتقال للتفاصيل)
       document.querySelectorAll(".pharmacy-card").forEach((card) => {
         card.addEventListener("click", (e) => {
-          if (!e.target.closest("a") && !e.target.closest(".toggle-top-search")) {
+          if (
+            !e.target.closest("a") &&
+            !e.target.closest(".toggle-top-search") &&
+            !e.target.closest(".avatar-zoom") &&
+            !e.target.closest("[data-ban-toggle]")
+          ) {
             const id = card.dataset.pharmacyId;
             App.router.go(`#/pharmacy/${id}`);
           }
         });
       });
+
+      // 🆕 تكبير الأفاتار (بلور + تكبير)
+      attachAvatarZoomHandlers();
+
+      // 🆕 زرار بند الصيدلية
+      attachBanHandlers();
 
       // معالج زر toggle التوب سيرش
       document.querySelectorAll(".toggle-top-search").forEach((btn) => {
@@ -378,18 +474,41 @@ App.pages = App.pages || {};
         ? Math.round(((currentStats.accepted + currentStats.partial) / currentStats.total) * 100)
         : 0;
 
+      const isActive = pharmacy.status === "active";
+
       return `
       <div class="page-container">
         <!-- رأس الصيدلية -->
-        <div class="page-header" style="display:flex;align-items:center;gap:16px;margin-bottom:32px">
-          <div style="display:flex;align-items:center;gap:16px;flex:1">
-            ${avatar(pharmacy.pharmacyName, pharmacy.color, "avatar-xl")}
+        <div class="page-header" style="display:flex;align-items:center;gap:16px;margin-bottom:32px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:16px;flex:1;min-width:260px">
+            <div class="avatar-zoom"
+                 data-avatar-zoom
+                 data-name="${esc(pharmacy.pharmacyName)}"
+                 data-subtitle="${esc(pharmacy.name)}"
+                 data-color="${esc(pharmacy.color)}"
+                 data-phone="${esc(pharmacy.phone || "")}"
+                 data-address="${esc(pharmacy.address || "")}"
+                 title="اضغط للتكبير">
+              ${avatar(pharmacy.pharmacyName, pharmacy.color, "avatar-xl")}
+            </div>
             <div>
               <h1 style="margin:0;margin-bottom:4px">${esc(pharmacy.pharmacyName)}</h1>
               <p class="text-muted" style="margin:0">${esc(pharmacy.name)} • ${esc(pharmacy.phone || "—")} • ${esc(pharmacy.address || "—")}</p>
             </div>
           </div>
-          <a href="#/pharmacies" class="btn btn-soft">← العودة</a>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span class="badge ${isActive ? "badge-accepted" : "badge-rejected"}">
+              ${isActive ? icon("check", 13) : icon("ban", 13)} ${isActive ? "نشطة" : "مبندة"}
+            </span>
+            <button class="btn btn-sm"
+                    style="${isActive ? "background:#ef4444;color:#fff;border:none" : ""}"
+                    data-ban-toggle="${esc(pharmacy.id)}"
+                    data-ban-name="${esc(pharmacy.pharmacyName)}"
+                    data-ban-action="${isActive ? "suspend" : "activate"}">
+              ${isActive ? icon("ban", 14) + " بند الصيدلية" : icon("check", 14) + " إعادة تفعيل"}
+            </button>
+            <a href="#/pharmacies" class="btn btn-soft">← العودة</a>
+          </div>
         </div>
 
         <!-- ============================================================
@@ -538,6 +657,12 @@ App.pages = App.pages || {};
     },
 
     mount(user, pharmacyId) {
+      // 🆕 تكبير أفاتار الصيدلية (بلور + تكبير)
+      attachAvatarZoomHandlers();
+
+      // 🆕 زرار بند/إعادة تفعيل الصيدلية
+      attachBanHandlers();
+
       /* 🆕 أزرار الاختصار السريعة (اليوم/الأسبوع/الشهر/السنة) — بتملى
          حقلَي الكالندر تلقائيًا بنطاق التاريخ المناسب وتطبّقه فورًا */
       document.querySelectorAll(".period-selector .period-tab[data-quick]").forEach((btn) => {
