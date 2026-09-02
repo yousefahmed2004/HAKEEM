@@ -11,6 +11,7 @@ require("dotenv").config();
 const { initializeDatabase } = require("./db/database");
 const authRoutes = require("./routes/auth");
 const ordersRoutes = require("./routes/orders");
+const paymentsRoutes = require("./routes/payments"); // 🆕 إيصالات دفع الاشتراك
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -65,6 +66,7 @@ app.get("/health", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api", ordersRoutes);
+app.use("/api", paymentsRoutes); // 🆕 /api/payments/...
 
 /* ============================================================
    الصفحة الرئيسية (عرض الواجهة الأمامية)
@@ -87,7 +89,8 @@ app.get("/api", (req, res) => {
             health: "/health",
             auth: "/api/auth",
             orders: "/api/orders",
-            pharmacists: "/api/pharmacists"
+            pharmacists: "/api/pharmacists",
+            payments: "/api/payments"
         }
     });
 });
