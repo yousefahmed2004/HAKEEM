@@ -3310,3 +3310,156 @@ img {
     width: 100%;
   }
 }
+
+
+/* ============================================================
+   🆕 lightbox-addon.css
+   ------------------------------------------------------------
+   الكلاسات دي ناقصة أصلاً من style.css عندك، رغم إن ui.js بيستخدمها
+   في App.ui.imageLightbox() و App.ui.lightboxHTML() و
+   App.ui.avatarLightbox() — وده اللي كان سبب إن الصورة "متفتحش"
+   وإن الصفحة تحس إنها "علّقت" (لأن body.overflow = hidden بيتظبط
+   من الجافاسكريبت، لكن العنصر نفسه (.lightbox-overlay) مالوش
+   position: fixed ولا z-index ولا خلفية — فبيتحط في الصفحة من غير
+   ما يبان، والسكرول بيتقفل من غير حاجة تظهر تعوّض عنه).
+
+   ضيف الكود ده في آخر style.css عندك (بعد أي حاجة، الترتيب مش مهم).
+   ============================================================ */
+
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 34, 56, .55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 0;
+  transition: opacity .2s ease;
+  cursor: zoom-out;
+}
+
+.lightbox-overlay.in {
+  opacity: 1;
+}
+
+.lightbox-img {
+  width: auto;
+  height: auto;
+  max-width: 92vw;
+  max-height: 90vh;
+  max-height: 90dvh;
+  object-fit: contain;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px -10px rgba(0, 0, 0, .5);
+  cursor: default;
+  transform: scale(.94);
+  transition: transform .2s cubic-bezier(.22, .9, .3, 1);
+}
+
+.lightbox-card {
+  background: #fff;
+  border-radius: 22px;
+  padding: 32px;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+  cursor: default;
+  transform: scale(.94);
+  transition: transform .2s cubic-bezier(.22, .9, .3, 1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.lightbox-overlay.in .lightbox-img,
+.lightbox-overlay.in .lightbox-card {
+  transform: scale(1);
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .92);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-lg);
+  transition: all .15s;
+  z-index: 1;
+}
+
+.lightbox-close:hover {
+  background: #fff;
+  color: var(--red);
+}
+
+/* بيانات أفاتار الصيدلية المكبّر (App.ui.avatarLightbox) */
+.lightbox-avatar-big {
+  width: 110px;
+  height: 110px;
+  border-radius: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 900;
+  font-size: 42px;
+  box-shadow: 0 10px 26px -6px rgba(2, 132, 199, .4);
+  margin-bottom: 6px;
+}
+
+.lightbox-avatar-name {
+  font-size: 19px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.lightbox-avatar-sub {
+  font-size: 13.5px;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.lightbox-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .lightbox-overlay {
+    padding: 12px;
+  }
+
+  .lightbox-img {
+    max-width: 96vw;
+    max-height: 88vh;
+    max-height: 88dvh;
+  }
+
+  .lightbox-close {
+    top: 12px;
+    left: 12px;
+    width: 38px;
+    height: 38px;
+  }
+
+  .lightbox-card {
+    padding: 24px 20px;
+  }
+}
