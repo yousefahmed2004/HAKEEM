@@ -191,6 +191,89 @@ window.App = window.App || {};
       </div>`;
   }
 
+  /* ---------- تكبير الصورة (Lightbox) ----------
+     🆕 دالة عامة لفتح أي صورة (صورة/شعار الصيدلية، الروشتة، إيصال
+     الدفع...) في طبقة فوق الصفحة كلها بخلفية معتّمة + بلور
+     (backdrop-filter)، والصورة نفسها بتتحط في المنتصف بأكبر مقاس
+     ممكن يفضل واضح على الموبايل والديسكتوب. تتقفل بضغطة في أي حتة
+     برة الصورة، بزرار X، أو بزرار Escape من الكيبورد.
+
+     الاستخدام من أي صفحة تانية (زي صفحة الصيادلة):
+       <img src="..." onclick="App.ui.imageLightbox('${url}', 'صيدلية النور')" style="cursor:zoom-in" />
+  */
+  function imageLightbox(src, alt = "") {
+    if (!src) return;
+    const overlay = document.createElement("div");
+    overlay.className = "lightbox-overlay";
+    overlay.innerHTML = `
+      <button class="lightbox-close" aria-label="إغلاق">${icon("x", 22)}</button>
+      <img src="${src}" alt="${esc(alt)}" class="lightbox-img" />`;
+    document.body.appendChild(overlay);
+    document.body.style.overflow = "hidden";
+
+    const close = () => {
+      overlay.classList.remove("in");
+      document.body.style.overflow = "";
+      setTimeout(() => overlay.remove(), 200);
+      document.removeEventListener("keydown", onKey);
+    };
+    function onKey(e) { if (e.key === "Escape") close(); }
+
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector(".lightbox-close").onclick = close;
+    document.addEventListener("keydown", onKey);
+
+    // نضيف كلاس "in" في الفريم اللي بعد كده عشان الترانزيشن (fade + scale) في CSS يشتغل
+    requestAnimationFrame(() => overlay.classList.add("in"));
+  }
+
+  /* ---------- تكبير محتوى HTML عام داخل نفس طبقة الـ Lightbox ----------
+     نفس شكل imageLightbox (بلور + تعتيم + إغلاق بالـ Escape أو الضغط
+     برة أو زرار X) بس بتقبل أي HTML بدل ما تكون مربوطة بـ <img> بس.
+     مفيدة لعرض "بطاقة" مكبّرة (زي أفاتار الصيدلية + بياناتها) لحد ما
+     يتضاف رفع صورة حقيقية، وبعدين imageLightbox هي اللي هتتستخدم. */
+  function lightboxHTML(bodyHtml) {
+    const overlay = document.createElement("div");
+    overlay.className = "lightbox-overlay";
+    overlay.innerHTML = `
+      <button class="lightbox-close" aria-label="إغلاق">${icon("x", 22)}</button>
+      <div class="lightbox-card">${bodyHtml}</div>`;
+    document.body.appendChild(overlay);
+    document.body.style.overflow = "hidden";
+
+    const close = () => {
+      overlay.classList.remove("in");
+      document.body.style.overflow = "";
+      setTimeout(() => overlay.remove(), 200);
+      document.removeEventListener("keydown", onKey);
+    };
+    function onKey(e) { if (e.key === "Escape") close(); }
+
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector(".lightbox-close").onclick = close;
+    document.addEventListener("keydown", onKey);
+
+    requestAnimationFrame(() => overlay.classList.add("in"));
+    return close;
+  }
+
+  /* ---------- تكبير أفاتار الصيدلية (دائرة الاسم الملوّنة) ----------
+     🆕 بتفتح لوحة مكبّرة بخلفية مبلورة فيها الأفاتار بحجم كبير + اسم
+     الصيدلية + اسم المسؤول (اختياري) + التليفون + العنوان. دي بديل
+     مؤقت لحد ما يتضاف رفع صورة/شعار حقيقي للصيدلية في قاعدة البيانات
+     (عمود زي "logoImage" في جدول users) — لو اتضاف بعدين، تستبدل
+     النداء ده بـ App.ui.imageLightbox(logoUrl, pharmacyName) مباشرة. */
+  function avatarLightbox({ name, color, phone, address, subtitle }) {
+    const initial = esc((name || "؟").trim().charAt(0));
+    lightboxHTML(`
+      <div class="lightbox-avatar-big" style="background:linear-gradient(135deg, ${color || "#0ea5e9"}, ${color || "#0ea5e9"}cc)">${initial}</div>
+      <div class="lightbox-avatar-name">${esc(name || "")}</div>
+      ${subtitle ? `<div class="lightbox-avatar-sub">${esc(subtitle)}</div>` : ""}
+      ${phone ? `<div class="lightbox-avatar-row">${icon("phone", 16)} ${esc(phone)}</div>` : ""}
+      ${address ? `<div class="lightbox-avatar-row">${icon("pin", 16)} ${esc(address)}</div>` : ""}
+    `);
+  }
+
   /* ---------- صوت تنبيه (Web Audio) ----------
      ⚠️ إصلاح مشكلة "الصوت مش بيوصل": المتصفحات (Chrome خصوصًا) بتخلي أي
      AudioContext جديد يبدأ في حالة "suspended" لحد ما يحصل تفاعل مباشر
@@ -300,7 +383,7 @@ window.App = window.App || {};
   }
 
   App.ui = {
-    icon, toast, modal, confirmModal, emptyState, beep,
+    icon, toast, modal, confirmModal, emptyState, beep, imageLightbox, lightboxHTML, avatarLightbox,
     fmtDateTime, timeAgo, fmtMoney, fmtNum, esc,
     statusBadge, avatar, STATUS,
   };
