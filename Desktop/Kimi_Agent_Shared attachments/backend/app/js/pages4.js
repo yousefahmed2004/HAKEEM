@@ -172,8 +172,8 @@ App.pages = App.pages || {};
               <div class="small">معدل التنفيذ</div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <button class="toggle-top-search vis-toggle ${pharmacyTopSearchStates[p.id] !== false ? "is-show" : "is-hide"}" data-pharmacy-id="${esc(p.id)}" title="عرض/إخفاء الخدمات الأكثر طلبًا">
-                ${icon("eye", 14)} ${pharmacyTopSearchStates[p.id] !== false ? "عرض" : "إخفاء"}
+              <button class="toggle-top-search vis-toggle ${pharmacyTopSearchStates[p.id] !== false ? "is-show" : "is-hide"}" data-pharmacy-id="${esc(p.id)}" title="عرض/إخفاء الأدوية الأكثر طلبًا">
+                ${icon("eye", 14)} ${pharmacyTopSearchStates[p.id] !== false ? "عرض الأدوية الأكثر طلبًا" : "إخفاء الأدوية الأكثر طلبًا"}
               </button>
               <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
             </div>
@@ -264,7 +264,7 @@ App.pages = App.pages || {};
           // تحديث شكل الزرار (سويتش أخضر/أحمر) ونصّه
           btn.classList.toggle("is-show", isShowing);
           btn.classList.toggle("is-hide", !isShowing);
-          btn.innerHTML = `${icon("eye", 14)} ${isShowing ? "عرض" : "إخفاء"}`;
+          btn.innerHTML = `${icon("eye", 14)} ${isShowing ? "عرض الأدوية الأكثر طلبًا" : "إخفاء الأدوية الأكثر طلبًا"}`;
           
           // تظهير تنبيه
           App.ui.toast(
