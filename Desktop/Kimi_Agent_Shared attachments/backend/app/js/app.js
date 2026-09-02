@@ -22,6 +22,8 @@ window.App = window.App || {};
         { hash: "#/pharmacists", icon: "users", label: "الصيادلة" },
         { hash: "#/statistics", icon: "chart", label: "الإحصائيات" },
         { hash: "#/medicines", icon: "pill", label: "الأدوية الأكثر طلبًا" },
+        // 🆕 صفحة استقبال ومراجعة إيصالات الدفع + حالة الصيدليات
+        { hash: "#/payment-requests", icon: "clipboard", label: "طلبات الدفع" },
         { section: "النظام" },
         { hash: "#/settings", icon: "settings", label: "الإعدادات" },
         { hash: "#/profile", icon: "user", label: "الملف الشخصي" },
@@ -30,6 +32,8 @@ window.App = window.App || {};
     return [
       ...common,
       { hash: "#/my-orders", icon: "clipboard", label: "طلباتي" },
+      // 🆕 صفحة رفع إيصال الدفع ومتابعة حالته
+      { hash: "#/payments", icon: "clipboard", label: "المدفوعات" },
       { section: "الحساب" },
       { hash: "#/profile", icon: "user", label: "الملف الشخصي" },
     ];
@@ -184,6 +188,9 @@ window.App = window.App || {};
     { pattern: /^#\/my-orders\/?$/, page: "myOrders" },
     { pattern: /^#\/settings\/?$/, page: "settings" },
     { pattern: /^#\/profile\/?$/, page: "profile" },
+    // 🆕 صفحات الدفع
+    { pattern: /^#\/payments\/?$/, page: "payments" },
+    { pattern: /^#\/payment-requests\/?$/, page: "paymentRequests" },
   ];
 
   function currentRoute() {
