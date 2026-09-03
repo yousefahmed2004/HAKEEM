@@ -15,9 +15,6 @@ App.pages = App.pages || {};
   // بيتحسب عليه الإحصائيات فعليًا، سواء جه من زرار سريع أو من الكالندر
   const selectedRanges = {};
 
-  // تخزين حالة التوب سيرش لكل صيدلية (هل مفعل أم لا)
-  const pharmacyTopSearchStates = {};
-
   // 🆕 تخزين نص البحث الحالي في قائمة الصيدليات (بيفضل محفوظ لو رجعت
   // للصفحة تاني في نفس الجلسة)
   let pharmaciesSearchQuery = "";
@@ -79,9 +76,6 @@ App.pages = App.pages || {};
     return { from: toDateInputValue(start), to: toDateInputValue(now) };
   }
 
-  // تخزين في window للوصول من صفحات أخرى
-  App.pharmacyTopSearchStates = pharmacyTopSearchStates;
-
   /* ============================================================
      📱 قائمة الصيدليات (Pharmacies List)
      ============================================================ */
@@ -123,6 +117,9 @@ App.pages = App.pages || {};
         const executionRate = stats.total > 0
           ? Math.round(((stats.accepted + stats.partial) / stats.total) * 100)
           : 0;
+        // 🆕 حالة إتاحة صفحة "الأدوية الأكثر طلبًا" لهذه الصيدلية —
+        // مصدرها الحقيقي الوحيد هو الحقل الراجع من السيرفر (users.topMedicinesEnabled)
+        const topMedicinesEnabled = p.topMedicinesEnabled !== false;
 
         return `
         <div class="card-item pharmacy-card" data-pharmacy-id="${esc(p.id)}" data-search="${esc(buildSearchBlob(p))}">
@@ -172,8 +169,10 @@ App.pages = App.pages || {};
               <div class="small">معدل التنفيذ</div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <button class="toggle-top-search vis-toggle ${pharmacyTopSearchStates[p.id] !== false ? "is-show" : "is-hide"}" data-pharmacy-id="${esc(p.id)}" title="عرض/إخفاء الأدوية الأكثر طلبًا">
-                ${icon("eye", 14)} ${pharmacyTopSearchStates[p.id] !== false ? "عرض الأدوية الأكثر طلبًا" : "إخفاء الأدوية الأكثر طلبًا"}
+              <!-- 🆕 زرار تفعيل/إيقاف صفحة "الأدوية الأكثر طلبًا" لهذه
+                   الصيدلية تحديدًا — بيتخزن فعليًا في السيرفر -->
+              <button class="toggle-top-search vis-toggle ${topMedicinesEnabled ? "is-show" : "is-hide"}" data-pharmacy-id="${esc(p.id)}" title="تفعيل/إيقاف صفحة الأدوية الأكثر طلبًا لهذه الصيدلية">
+                ${icon("eye", 14)} ${topMedicinesEnabled ? "تعطيل الميزة عن هذه الصيدلية" : "تفعيل الميزة لهذه الصيدلية"}
               </button>
               <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
             </div>
@@ -244,33 +243,35 @@ App.pages = App.pages || {};
       // 🆕 تكبير الأفاتار بيشتغل عن طريق event delegation عام على
       // document (شوف أعلى الملف) — مفيش داعي نعلّق listeners هنا تاني.
 
-      // معالج زر toggle التوب سيرش
+      // 🆕 معالج زر تفعيل/إيقاف "الأدوية الأكثر طلبًا" — بيحفظ الحالة
+      // فعليًا في قاعدة البيانات عن طريق نفس دالة تعديل بيانات الصيدلي
+      // المستخدمة أصلاً في تعديل الاسم/العنوان/السعة (updatePharmacist)
       document.querySelectorAll(".toggle-top-search").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
+        btn.addEventListener("click", async (e) => {
           e.preventDefault();
           e.stopPropagation();
 
           const pharmacyId = btn.dataset.pharmacyId;
+          const currentlyEnabled = btn.classList.contains("is-show");
+          const newValue = !currentlyEnabled;
 
-          // تبديل الحالة (إذا لم تكن موجودة، تبدأ بـ true، وإلا تتبدل)
-          if (pharmacyTopSearchStates[pharmacyId] === undefined) {
-            pharmacyTopSearchStates[pharmacyId] = false;
-          } else {
-            pharmacyTopSearchStates[pharmacyId] = !pharmacyTopSearchStates[pharmacyId];
+          btn.disabled = true;
+          try {
+            await S().updatePharmacist(pharmacyId, { topMedicinesEnabled: newValue });
+          } catch (err) {
+            btn.disabled = false;
+            return toast("تعذر تحديث الحالة", err.message || "", "error");
           }
+          btn.disabled = false;
 
-          const isShowing = pharmacyTopSearchStates[pharmacyId];
+          btn.classList.toggle("is-show", newValue);
+          btn.classList.toggle("is-hide", !newValue);
+          btn.innerHTML = `${icon("eye", 14)} ${newValue ? "تعطيل الميزة عن هذه الصيدلية" : "تفعيل الميزة لهذه الصيدلية"}`;
 
-          // تحديث شكل الزرار (سويتش أخضر/أحمر) ونصّه
-          btn.classList.toggle("is-show", isShowing);
-          btn.classList.toggle("is-hide", !isShowing);
-          btn.innerHTML = `${icon("eye", 14)} ${isShowing ? "عرض الأدوية الأكثر طلبًا" : "إخفاء الأدوية الأكثر طلبًا"}`;
-
-          // تظهير تنبيه
-          App.ui.toast(
-            isShowing
-              ? `✓ سيتم عرض الخدمات الأكثر طلبًا لهذه الصيدلية`
-              : `✓ سيتم إخفاء الخدمات الأكثر طلبًا لهذه الصيدلية`
+          toast(
+            newValue
+              ? "✓ تم تفعيل صفحة الأدوية الأكثر طلبًا لهذه الصيدلية"
+              : "✓ تم إيقاف صفحة الأدوية الأكثر طلبًا لهذه الصيدلية"
           );
         });
       });
