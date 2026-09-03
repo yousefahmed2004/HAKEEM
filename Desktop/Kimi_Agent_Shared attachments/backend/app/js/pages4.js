@@ -511,7 +511,7 @@ App.pages = App.pages || {};
                     <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0">
                       <div class="month-bar" style="width:100%;height:${Math.max(height, 10)}px;background:linear-gradient(to top,#0284c7,#0ea5e9);border-radius:4px;cursor:pointer" title="${m.month}: ${fmtMoney(m.revenue)}"></div>
                       <div style="font-size:12px;text-align:center;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">${m.shortMonth}</div>
-                      <div style="font-size:11px;color:var(--text-muted);text-align:center">${fmtNum(m.count)}</div>
+                     <div style="font-size:11px;color:var(--text-muted);text-align:center;white-space:nowrap">${fmtMoney(m.revenue)}</div>
                     </div>
                   `;
                 })
