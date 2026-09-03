@@ -396,38 +396,54 @@ App.pages = App.pages || {};
       return;
     }
 
+    /* 🆕 (تعديل — موبايل) الجدول القديم (<table>) كان بيتكسّر على شاشات
+       الموبايل الضيقة: الأعمدة بتتحول تلقائيًا لصفوف تحت بعض من غير أي
+       عنوان يوضّح كل رقم رايح لإيه (زي ما ظهر في اللقطة: أرقام معلّقة
+       من غير أي label). الحل: بدل الجدول، كل صيدلية بقت "كارت" مستقل،
+       وكل رقم جواه ليه تسمية (label) قصيرة قدامه على نفس السطر — الشكل
+       ده بيفضل واضح ومرتب سواء على موبايل أو ديسكتوب من غير أي اعتماد
+       على media queries في CSS. */
     target.innerHTML = `
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr>
-            <th>الصيدلية</th><th>الطلبات المنفذة</th><th>الجزئية</th><th>المرفوضة</th>
-            <th>إجمالي الطلبات</th><th>الإيرادات</th><th>نسبة التنفيذ</th>
-          </tr></thead>
-          <tbody>
-            ${filtered.map((p) => {
+      <div style="display:flex;flex-direction:column;gap:14px">
+        ${filtered.map((p) => {
         const done = p.accepted + p.partial;
         const rate = p.total ? Math.round((done / p.total) * 100) : 0;
         return `
-                <tr>
-                  <td>
-                    <div class="cell-main">${esc(p.name)}</div>
-                    <div class="cell-sub">${esc(p.pharmacist)} ${p.status === "suspended" ? "— موقوف" : ""}</div>
-                  </td>
-                  <td><span class="badge badge-accepted">${fmtNum(p.accepted)}</span></td>
-                  <td><span class="badge badge-partial">${fmtNum(p.partial)}</span></td>
-                  <td><span class="badge badge-rejected">${fmtNum(p.rejected)}</span></td>
-                  <td class="bold">${fmtNum(p.total)}</td>
-                  <td class="bold" style="color:var(--sky-700)">${fmtMoney(p.revenue)}</td>
-                  <td>
-                    <div style="display:flex;align-items:center;gap:9px">
-                      <div class="hb-track" style="width:90px;height:8px"><div class="hb-fill" style="width:${rate}%"></div></div>
-                      <span class="bold small">${rate}%</span>
-                    </div>
-                  </td>
-                </tr>`;
+          <div class="card" style="margin:0;padding:16px 18px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border,#eef0f3)">
+              <div>
+                <div class="cell-main">${esc(p.name)}</div>
+                <div class="cell-sub">${esc(p.pharmacist)}${p.status === "suspended" ? " — موقوف" : ""}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="hb-track" style="width:70px;height:8px"><div class="hb-fill" style="width:${rate}%"></div></div>
+                <span class="bold small" style="white-space:nowrap">${rate}% تنفيذ</span>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 20px">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span class="small muted">منفذة</span>
+                <span class="badge badge-accepted">${fmtNum(p.accepted)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span class="small muted">جزئية</span>
+                <span class="badge badge-partial">${fmtNum(p.partial)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span class="small muted">مرفوضة</span>
+                <span class="badge badge-rejected">${fmtNum(p.rejected)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span class="small muted">إجمالي الطلبات</span>
+                <span class="bold">${fmtNum(p.total)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;grid-column:span 2;padding-top:8px;margin-top:2px;border-top:1px dashed var(--border,#eef0f3)">
+                <span class="small muted">الإيرادات</span>
+                <span class="bold" style="color:var(--sky-700)">${fmtMoney(p.revenue)}</span>
+              </div>
+            </div>
+          </div>`;
       }).join("")}
-          </tbody>
-        </table>
       </div>`;
   }
 
