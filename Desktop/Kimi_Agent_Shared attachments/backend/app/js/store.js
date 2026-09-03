@@ -381,6 +381,26 @@ window.App = window.App || {};
   const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   const sameMonth = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 
+  /* ============================================================
+     🆕 هيلبرز فلترة المدة (Date Range) للإحصائيات
+     ------------------------------------------------------------
+     toDateOrNull: بتحوّل أي قيمة (سترينج تاريخ من input[type=date] أو
+     Date أو فاضية) لـ Date صالح، أو null لو مفيش قيمة/القيمة غلط.
+     orderInRange: بترجع true لو تاريخ إنشاء الطلب واقع جوه [from, to].
+     لو from أو to = null بيتجاهل الطرف ده (يعني مفتوح من ناحيته).
+     ============================================================ */
+  function toDateOrNull(v) {
+    if (!v) return null;
+    const d = v instanceof Date ? v : new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function orderInRange(o, from, to) {
+    const d = new Date(o.createdAt);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  }
+
   function randomOrder() {
     const rnd = Math.random;
     const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
@@ -984,14 +1004,32 @@ if (workflowStatus === "cancelled") {
     },
     buildRandomOrder: randomOrder,
 
-    /* الإحصائيات */
-    stats() {
+    /* ============================================================
+       الإحصائيات
+       ------------------------------------------------------------
+       🆕 stats(range) بقت بتقبل باراميتر اختياري range = { from, to }
+       (سترينجات تاريخ زي القادمة من input[type=date]، أو Date، أو
+       فاضية). لو range مش موجود أو from/to الاتنين فاضيين، بترجع
+       بالظبط نفس السلوك القديم (على كل الطلبات all-time).
+       لو range فيه from و/أو to، بتحسب كل الأرقام (accepted, revenue,
+       ...) على الطلبات الواقعة جوه المدة دي بس. "today" و"month"
+       بيفضلوا بيشاورو على اليوم/الشهر الحاليين فعليًا (مفيدين حتى لو
+       مفعّل فلتر مدة، كمرجع سريع لحركة اليوم الفعلي).
+       ============================================================ */
+    stats(range) {
+      const from = range && toDateOrNull(range.from);
+      let to = range && toDateOrNull(range.to);
+      if (to) to.setHours(23, 59, 59, 999); // خلي "إلى" شامل آخر لحظة في اليوم المحدد
+
       const now = new Date();
-      const s = { today: 0, month: 0, total: db.orders.length, accepted: 0, rejected: 0, partial: 0, pending: 0, revenue: 0 };
-      db.orders.forEach((o) => {
+      const s = { today: 0, month: 0, total: 0, accepted: 0, rejected: 0, partial: 0, pending: 0, revenue: 0 };
+      const source = (from || to) ? db.orders.filter((o) => orderInRange(o, from, to)) : db.orders;
+
+      source.forEach((o) => {
         const d = new Date(o.createdAt);
         if (sameDay(d, now)) s.today++;
         if (sameMonth(d, now)) s.month++;
+        s.total++;
         if (o.status === "accepted" || o.status === "closed") { s.accepted++; s.revenue += o.price || 0; }
         else if (o.status === "partial") { s.partial++; s.revenue += o.price || 0; }
         else if (o.status === "rejected") s.rejected++;
@@ -1000,11 +1038,17 @@ if (workflowStatus === "cancelled") {
       return s;
     },
 
-    pharmacyStats() {
+    /* 🆕 pharmacyStats(range) — نفس فكرة stats() بس لكل صيدلية على حدة */
+    pharmacyStats(range) {
+      const from = range && toDateOrNull(range.from);
+      let to = range && toDateOrNull(range.to);
+      if (to) to.setHours(23, 59, 59, 999);
+      const inR = (o) => !(from || to) || orderInRange(o, from, to);
+
       return this.getPharmacists().map((p) => {
-        const accepted = db.orders.filter((o) => o.pharmacyId === p.id && (o.status === "accepted" || o.status === "closed"));
-        const partial = db.orders.filter((o) => o.pharmacyId === p.id && o.status === "partial");
-        const rejected = db.orders.filter((o) => o.rejectedBy && o.rejectedBy.includes(p.id));
+        const accepted = db.orders.filter((o) => o.pharmacyId === p.id && (o.status === "accepted" || o.status === "closed") && inR(o));
+        const partial = db.orders.filter((o) => o.pharmacyId === p.id && o.status === "partial" && inR(o));
+        const rejected = db.orders.filter((o) => o.rejectedBy && o.rejectedBy.includes(p.id) && inR(o));
         const perf = this.pharmacyPerformance(p);
         return {
           id: p.id, name: p.pharmacyName, pharmacist: p.name, status: p.status,
@@ -1029,9 +1073,15 @@ if (workflowStatus === "cancelled") {
       return { points: profile.executionPoints || 100, rate, badge };
     },
 
-    medicineStats() {
+    /* 🆕 medicineStats(range) — إحصائيات الأدوية اختياريًا على مدى تاريخ مخصص */
+    medicineStats(range) {
+      const from = range && toDateOrNull(range.from);
+      let to = range && toDateOrNull(range.to);
+      if (to) to.setHours(23, 59, 59, 999);
+      const source = (from || to) ? db.orders.filter((o) => orderInRange(o, from, to)) : db.orders;
+
       const counts = {};
-      db.orders.forEach((o) => o.items.forEach((m) => {
+      source.forEach((o) => o.items.forEach((m) => {
         const name = medicineName(m);
         if (!name) return;
         counts[name] = (counts[name] || 0) + 1;
@@ -1046,6 +1096,28 @@ if (workflowStatus === "cancelled") {
         const dt = new Date(); dt.setDate(dt.getDate() - d);
         const count = db.orders.filter((o) => sameDay(new Date(o.createdAt), dt)).length;
         out.push({ label: `${dt.getDate()}/${dt.getMonth() + 1}`, value: count });
+      }
+      return out;
+    },
+
+    /* ============================================================
+       🆕 rangeSeries(from, to) — زي dailySeries بالظبط، بس بتاخد مدى
+       تاريخ مخصص (من - إلى) بدل "آخر N يوم" ثابتة. لو from/to فاضيين
+       بترجع افتراضيًا آخر 30 يوم لحد النهارده (نفس سلوك dailySeries(30)).
+       فيها حماية (guard) لأقصى 366 يوم عشان منمنعش تجميد الصفحة لو
+       المستخدم اختار مدى ضخم بالغلط.
+       ============================================================ */
+    rangeSeries(from, to) {
+      const fromD = toDateOrNull(from) || (() => { const d = new Date(); d.setDate(d.getDate() - 29); return d; })();
+      const toD = toDateOrNull(to) || new Date();
+      const cursor = new Date(fromD.getFullYear(), fromD.getMonth(), fromD.getDate());
+      const end = new Date(toD.getFullYear(), toD.getMonth(), toD.getDate());
+      const out = [];
+      let guard = 0;
+      while (cursor <= end && guard++ < 366) {
+        const count = db.orders.filter((o) => sameDay(new Date(o.createdAt), cursor)).length;
+        out.push({ label: `${cursor.getDate()}/${cursor.getMonth() + 1}`, value: count });
+        cursor.setDate(cursor.getDate() + 1);
       }
       return out;
     },
