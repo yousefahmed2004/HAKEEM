@@ -441,10 +441,10 @@ App.pages = App.pages || {};
 
         <div class="period-selector" style="display:flex;flex-direction:column;gap:14px;margin-bottom:24px;background:var(--bg-soft);padding:14px;border-radius:12px">
           <div class="period-quick" style="display:flex;gap:8px;flex-wrap:wrap">
-            <button type="button" class="period-tab ${currentPeriod === "day" ? "active" : ""}" data-quick="day">${icon("zap", 15)} اليوم</button>
-            <button type="button" class="period-tab ${currentPeriod === "week" ? "active" : ""}" data-quick="week">${icon("zap", 15)} الأسبوع</button>
-            <button type="button" class="period-tab ${currentPeriod === "month" ? "active" : ""}" data-quick="month">${icon("zap", 15)} الشهر</button>
-            <button type="button" class="period-tab ${currentPeriod === "year" ? "active" : ""}" data-quick="year">${icon("zap", 15)} السنة</button>
+            <button type="button" class="period-tab ${currentPeriod === "day" ? "active" : ""}" data-quick="day">اليوم</button>
+            <button type="button" class="period-tab ${currentPeriod === "week" ? "active" : ""}" data-quick="week">الأسبوع</button>
+            <button type="button" class="period-tab ${currentPeriod === "month" ? "active" : ""}" data-quick="month">الشهر</button>
+            <button type="button" class="period-tab ${currentPeriod === "year" ? "active" : ""}" data-quick="year">السنة</button>
           </div>
           <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
             <div class="field" style="margin:0">
