@@ -198,6 +198,12 @@ const initializeDatabase = async () => {
 
         await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "maxActiveOrders" INT DEFAULT 3`);
         await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS address VARCHAR(500) DEFAULT NULL`);
+        // 🆕 تحكم الأدمين لكل صيدلية بعينها في إتاحة صفحة "الأدوية الأكثر
+        // طلبًا" للصيدلي — تفضل الخانة ظاهرة في المينيو دايمًا، وده العلم
+        // اللي بيحدد هل الصيدلي مسموح له يدخلها فعليًا ولا لأ (شوف app.js
+        // و pages4.js في الفرونت إند). القيمة الافتراضية true عشان كل
+        // الصيادلة الحاليين ما يتأثروش بالتحديث ده.
+        await run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "topMedicinesEnabled" BOOLEAN DEFAULT true`);
 
         // 2. --- orders table ---
         await run(`
