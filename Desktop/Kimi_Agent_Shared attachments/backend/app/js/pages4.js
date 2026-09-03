@@ -7,7 +7,7 @@ App.pages = App.pages || {};
 (function () {
   const { icon, esc, avatar, fmtMoney, fmtNum, toast } = App.ui;
   const S = () => App.store;
-  
+
   // تخزين الفترة الزمنية المختارة لكل صيدلية (اسم الاختصار السريع، أو "custom")
   const selectedPeriods = {};
 
@@ -78,7 +78,7 @@ App.pages = App.pages || {};
     }
     return { from: toDateInputValue(start), to: toDateInputValue(now) };
   }
-  
+
   // تخزين في window للوصول من صفحات أخرى
   App.pharmacyTopSearchStates = pharmacyTopSearchStates;
 
@@ -249,27 +249,27 @@ App.pages = App.pages || {};
         btn.addEventListener("click", (e) => {
           e.preventDefault();
           e.stopPropagation();
-          
+
           const pharmacyId = btn.dataset.pharmacyId;
-          
+
           // تبديل الحالة (إذا لم تكن موجودة، تبدأ بـ true، وإلا تتبدل)
           if (pharmacyTopSearchStates[pharmacyId] === undefined) {
             pharmacyTopSearchStates[pharmacyId] = false;
           } else {
             pharmacyTopSearchStates[pharmacyId] = !pharmacyTopSearchStates[pharmacyId];
           }
-          
+
           const isShowing = pharmacyTopSearchStates[pharmacyId];
 
           // تحديث شكل الزرار (سويتش أخضر/أحمر) ونصّه
           btn.classList.toggle("is-show", isShowing);
           btn.classList.toggle("is-hide", !isShowing);
           btn.innerHTML = `${icon("eye", 14)} ${isShowing ? "عرض الأدوية الأكثر طلبًا" : "إخفاء الأدوية الأكثر طلبًا"}`;
-          
+
           // تظهير تنبيه
           App.ui.toast(
-            isShowing 
-              ? `✓ سيتم عرض الخدمات الأكثر طلبًا لهذه الصيدلية` 
+            isShowing
+              ? `✓ سيتم عرض الخدمات الأكثر طلبًا لهذه الصيدلية`
               : `✓ سيتم إخفاء الخدمات الأكثر طلبًا لهذه الصيدلية`
           );
         });
@@ -336,7 +336,7 @@ App.pages = App.pages || {};
 
       const orders = S().getOrders();
       const phOrders = orders.filter((o) => o.pharmacyId === pharmacyId);
-      
+
       // الفترة السريعة المختارة حاليًا (أو "month" بشكل افتراضي)
       const currentPeriod = selectedPeriods[pharmacyId] || "month";
       // نطاق التاريخ الفعلي (من/إلى) — لو المستخدم لسه ماحددش نطاق مخصص
@@ -370,16 +370,6 @@ App.pages = App.pages || {};
         };
       }
 
-      /* ============================================================
-         🛠️ (تعديل) أسماء الشهور بالعربي — ثابتة بدل الاعتماد على
-         toLocaleDateString + substring(0,3)
-         ------------------------------------------------------------
-         المشكلة القديمة: الاسم المختصر كان بيتحسب بقص أول 3 حروف من
-         الاسم الكامل الراجع من toLocaleDateString("ar-EG"، {month:"long"})،
-         وده كان بيدي نتائج غلط لبعض الشهور (زي "سبتمبر" اللي المفروض
-         تختصر لـ "سبت" لكن كانت بتطلع "ست").
-         الحل: مصفوفتين ثابتتين (الاسم الكامل + الاسم المختصر الصحيح)
-         مفهرسة بنفس ترتيب getMonth() (0 = يناير ... 11 = ديسمبر). */
       const ARABIC_MONTHS_FULL = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
       const ARABIC_MONTHS_SHORT = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
 
@@ -421,8 +411,22 @@ App.pages = App.pages || {};
 
       return `
       <div class="page-container">
-        <!-- رأس الصيدلية -->
-        <div class="page-header" style="display:flex;align-items:center;gap:16px;margin-bottom:32px;flex-wrap:wrap">
+        <!-- ============================================================
+             🛠️ (تعديل) رأس الصفحة رجع يعتمد على كلاس .page-header بس
+             ------------------------------------------------------------
+             المشكلة القديمة: هنا كان متحط inline style
+             ("display:flex;align-items:center;gap:16px;...") فوق نفس
+             العنصر اللي عليه class="page-header". الـ inline style بتكسب
+             دايمًا فوق أي قاعدة جاية من style.css — حتى لو القاعدة دي
+             جوه @media (max-width:768px) بتقول "استكّي العناصر تحت
+             بعض" (flex-direction:column + align-items:stretch). يعني
+             على الموبايل كانت قاعدة الموبايل بتتلغي، والهيدر يفضل
+             معمول align-items:center بس، فيبان مش متكدس صح.
+             الحل: شيلنا الـ inline style وسبنا كلاس .page-header ياخد
+             القرار بالكامل (بالظبط زي ما بيحصل في صفحة "الصيدليات"
+             العادية اللي شغالة كويس على الموبايل).
+             ============================================================ -->
+        <div class="page-header" style="margin-bottom:32px">
           <div style="display:flex;align-items:center;gap:16px;flex:1;min-width:260px">
             <div class="avatar-zoom"
                  data-avatar-zoom
@@ -513,21 +517,40 @@ App.pages = App.pages || {};
           </div>
         </div>
 
-        <!-- رسم بياني للمبيعات الشهرية -->
+        <!-- ============================================================
+             🛠️ (تعديل) — إصلاح كسر التصميم على الموبايل
+             ------------------------------------------------------------
+             المشكلة: العنصر ده كان معمول عليه inline style بيحدد
+             grid-template-columns:repeat(12,1fr) بالظبط. الـ inline
+             style بيكسب دايمًا فوق أي قاعدة تانية في style.css — يعني
+             قاعدة الموبايل (@media max-width:768px) اللي مفروض تقلل
+             الأعمدة لـ 6 كانت بتتلغي بالكامل، فالشارت كان بيحاول يعمل
+             12 عمود بجوار بعض على شاشة موبايل ضيقة. كل عمود فيه اسم
+             شهر عربي (زي "سبتمبر") مش قابل للكسر، فالمتصفح كان مضطر
+             يوسّع عرض الصفحة كلها عشان الأعمدة التلاتاشر تتحط جنب بعض
+             — وده اللي كان بيعمل سكرول أفقي غريب ويخلي المينيو
+             (position:fixed) تبان فوق المحتوى بدل ما تفضل مستخبية.
+
+             الحل: شيلنا الـ inline style خالص وسبنا كلاس .monthly-chart
+             (اللي فيه أصلاً نسخة موبايل بـ 6 أعمدة في style.css) ياخد
+             القرار الكامل، وزودنا حماية إضافية في نفس الكلاس بـ
+             minmax(0,1fr) بدل 1fr عشان أي عمود يقدر ينكمش تحت حجم
+             محتواه بدل ما يجبر الصفحة توسع.
+             ============================================================ -->
         <div class="card" style="margin-bottom:32px">
           <div class="card-header">
             <h3 style="margin:0">المبيعات الشهرية (آخر 12 شهر)</h3>
           </div>
           <div class="card-body">
-            <div class="monthly-chart" style="display:grid;grid-template-columns:repeat(12,1fr);gap:8px;min-height:200px">
+            <div class="monthly-chart">
               ${monthlyStats
                 .map((m) => {
                   const maxRevenue = Math.max(...monthlyStats.map((x) => x.revenue || 0)) || 1;
                   const height = (m.revenue / maxRevenue) * 100;
                   return `
-                    <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+                    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0">
                       <div class="month-bar" style="width:100%;height:${Math.max(height, 10)}px;background:linear-gradient(to top,#0284c7,#0ea5e9);border-radius:4px;cursor:pointer" title="${m.month}: ${fmtMoney(m.revenue)}"></div>
-                      <div style="font-size:12px;text-align:center;color:var(--text-muted);white-space:nowrap">${m.shortMonth}</div>
+                      <div style="font-size:12px;text-align:center;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">${m.shortMonth}</div>
                       <div style="font-size:11px;color:var(--text-muted);text-align:center">${fmtNum(m.count)}</div>
                     </div>
                   `;
