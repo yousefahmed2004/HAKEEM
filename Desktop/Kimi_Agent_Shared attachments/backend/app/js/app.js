@@ -32,6 +32,10 @@ window.App = window.App || {};
     return [
       ...common,
       { hash: "#/my-orders", icon: "clipboard", label: "طلباتي" },
+      // 🆕 خانة "الأدوية الأكثر طلبًا" مستقلة للصيدلي — تفضل ظاهرة
+      // دايمًا في المينيو، والأدمين هو اللي بيتحكم هل هي متاحة فعليًا
+      // ولا لأ لكل صيدلية بعينها (شوف الحارس في renderRoute تحت)
+      { hash: "#/medicines", icon: "pill", label: "الأدوية الأكثر طلبًا" },
       // 🆕 صفحة رفع إيصال الدفع ومتابعة حالته
       { hash: "#/payments", icon: "clipboard", label: "المدفوعات" },
       { section: "الحساب" },
@@ -210,6 +214,16 @@ window.App = window.App || {};
     const { page, param } = currentRoute();
     const def = App.pages[page];
     if (!def) return;
+
+    /* 🆕 حارس "الأدوية الأكثر طلبًا": الخانة تفضل ظاهرة في مينيو
+       الصيدلي دايمًا، لكن لو الأدمين قافلها لصيدليته بعينها
+       (topMedicinesEnabled === false)، منمنعوش من الصفحة بصمت —
+       بنورّيه تنبيه واضح ونرجّعه للوحة التحكم بدل ما نفتح الصفحة */
+    if (page === "medicines" && user.role !== "admin" && user.topMedicinesEnabled === false) {
+      toast("غير متاحة", "هذه الخدمة غير متاحة لديك حاليًا", "warning");
+      location.hash = "#/";
+      return;
+    }
 
     /* حارس الصلاحيات */
     if (def.roles && !def.roles.includes(user.role)) {
