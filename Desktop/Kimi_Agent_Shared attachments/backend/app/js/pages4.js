@@ -171,11 +171,11 @@ App.pages = App.pages || {};
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <!-- 🆕 زرار تفعيل/إيقاف صفحة "الأدوية الأكثر طلبًا" لهذه
                    الصيدلية تحديدًا — بيتخزن فعليًا في السيرفر -->
-             <button class="toggle-top-search vis-toggle ${topMedicinesEnabled ? "is-show" : "is-hide"}"
-        data-pharmacy-id="${esc(p.id)}"
-        title="${topMedicinesEnabled ? "تعطيل الأدوية الأكثر طلبًا" : "تفعيل الأدوية الأكثر طلبًا"}">
-  ${icon("eye", 14)} ${topMedicinesEnabled ? "تعطيل الأدوية الأكثر طلبًا" : "تفعيل الأدوية الأكثر طلبًا"}
-</button>
+              <button class="toggle-top-search vis-toggle ${topMedicinesEnabled ? "is-show" : "is-hide"}"
+                data-pharmacy-id="${esc(p.id)}"
+                title="${topMedicinesEnabled ? "تعطيل الأدوية الأكثر طلبًا" : "تفعيل الأدوية الأكثر طلبًا"}">
+                ${icon("eye", 14)} ${topMedicinesEnabled ? "تعطيل الأدوية الأكثر طلبًا" : "تفعيل الأدوية الأكثر طلبًا"}
+              </button>
               <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
             </div>
           </div>
@@ -268,12 +268,15 @@ App.pages = App.pages || {};
 
           btn.classList.toggle("is-show", newValue);
           btn.classList.toggle("is-hide", !newValue);
-          btn.innerHTML = `${icon("eye", 14)} ${newValue ? "تعطيل الميزة عن هذه الصيدلية" : "تفعيل الميزة لهذه الصيدلية"}`;
+          // 🛠️ (تعديل) خلينا نص الزرار والـ title متسقين مع نص العرض
+          // الأولي في render() — "تفعيل/تعطيل الأدوية الأكثر طلبًا"
+          btn.title = newValue ? "تعطيل الأدوية الأكثر طلبًا" : "تفعيل الأدوية الأكثر طلبًا";
+          btn.innerHTML = `${icon("eye", 14)} ${newValue ? "تعطيل الأدوية الأكثر طلبًا" : "تفعيل الأدوية الأكثر طلبًا"}`;
 
           toast(
             newValue
-              ? "✓ تم تفعيل صفحة الأدوية الأكثر طلبًا لهذه الصيدلية"
-              : "✓ تم إيقاف صفحة الأدوية الأكثر طلبًا لهذه الصيدلية"
+              ? "✓ تم تفعيل الأدوية الأكثر طلبًا لهذه الصيدلية"
+              : "✓ تم إيقاف الأدوية الأكثر طلبًا لهذه الصيدلية"
           );
         });
       });
@@ -513,7 +516,8 @@ App.pages = App.pages || {};
                     <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0">
                       <div class="month-bar" style="width:100%;height:${Math.max(height, 10)}px;background:linear-gradient(to top,#0284c7,#0ea5e9);border-radius:4px;cursor:pointer" title="${m.month}: ${fmtMoney(m.revenue)}"></div>
                       <div style="font-size:12px;text-align:center;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">${m.shortMonth}</div>
-                     <div style="font-size:11px;color:var(--text-muted);text-align:center;white-space:nowrap">${fmtMoney(m.revenue)}</div>
+                      <!-- 🛠️ (تعديل) عرض الإيراد بالجنيه تحت كل عمود بدل عدد الطلبات -->
+                      <div style="font-size:11px;color:var(--text-muted);text-align:center;white-space:nowrap">${fmtMoney(m.revenue)}</div>
                     </div>
                   `;
                 })
