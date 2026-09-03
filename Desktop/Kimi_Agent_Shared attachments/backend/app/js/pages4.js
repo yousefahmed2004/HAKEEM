@@ -171,9 +171,11 @@ App.pages = App.pages || {};
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <!-- 🆕 زرار تفعيل/إيقاف صفحة "الأدوية الأكثر طلبًا" لهذه
                    الصيدلية تحديدًا — بيتخزن فعليًا في السيرفر -->
-              <button class="toggle-top-search vis-toggle ${topMedicinesEnabled ? "is-show" : "is-hide"}" data-pharmacy-id="${esc(p.id)}" title="تفعيل/إيقاف صفحة الأدوية الأكثر طلبًا لهذه الصيدلية">
-                ${icon("eye", 14)} ${topMedicinesEnabled ? "تعطيل الميزة عن هذه الصيدلية" : "تفعيل الميزة لهذه الصيدلية"}
-              </button>
+             <button class="toggle-top-search vis-toggle ${topMedicinesEnabled ? "is-show" : "is-hide"}"
+        data-pharmacy-id="${esc(p.id)}"
+        title="${topMedicinesEnabled ? "تعطيل الأدوية الأكثر طلبًا" : "تفعيل الأدوية الأكثر طلبًا"}">
+  ${icon("eye", 14)} ${topMedicinesEnabled ? "تعطيل الأدوية الأكثر طلبًا" : "تفعيل الأدوية الأكثر طلبًا"}
+</button>
               <a href="#/pharmacy/${esc(p.id)}" class="btn btn-primary btn-sm">التفاصيل →</a>
             </div>
           </div>
