@@ -252,10 +252,56 @@ App.pages = App.pages || {};
   /* 🆕 نص البحث الحالي في جدول إحصائيات الصيدليات */
   let statPhQuery = "";
 
+  /* 🆕 المدة المختارة حاليًا للفلترة { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }
+     — لو الاتنين فاضيين يبقى معناه "كل الوقت" (السلوك الافتراضي القديم). */
+  let statsRange = { from: "", to: "" };
+
+  /* 🆕 نحتفظ بآخر range اتفلتر بيه (null لو "كل الوقت") عشان دوال زي
+     البحث/التصدير تستخدمه من غير ما تحتاج تستقبله كباراميتر مكرر */
+  let currentRange = null;
+
   function statisticsHTML() {
-    const st = S().stats();
     return `
       <div class="page-anim">
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-head">
+            <div class="card-title">${icon("calendar", 20)} فلترة الإحصائيات حسب المدة</div>
+            <span class="small muted" id="range-label"></span>
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+            <div class="field" style="margin:0">
+              <label>من تاريخ</label>
+              <input class="input" type="date" id="range-from" value="${esc(statsRange.from)}" />
+            </div>
+            <div class="field" style="margin:0">
+              <label>إلى تاريخ</label>
+              <input class="input" type="date" id="range-to" value="${esc(statsRange.to)}" />
+            </div>
+            <button class="btn btn-primary" id="range-apply">${icon("search", 16)} تطبيق</button>
+            <button class="btn btn-ghost" id="range-reset">إعادة تعيين (كل الوقت)</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-inline-start:auto">
+              <button class="btn btn-soft btn-sm" data-preset="today">اليوم</button>
+              <button class="btn btn-soft btn-sm" data-preset="week">هذا الأسبوع</button>
+              <button class="btn btn-soft btn-sm" data-preset="month">هذا الشهر</button>
+              <button class="btn btn-soft btn-sm" data-preset="30">آخر 30 يوم</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="stats-body"></div>
+      </div>`;
+  }
+
+  /* 🆕 بتبني وتعرض كل جسم صفحة الإحصائيات (الكروت + الرسمين + جدول
+     الصيدليات) بناءً على currentRange الحالي. بتتنادى أول مرة في mount()
+     وبعدين كل مرة يتغير فيها الفلتر (تطبيق / إعادة تعيين / preset). */
+  function renderStatsBody() {
+    const range = currentRange;
+    const st = S().stats(range);
+    const body = document.getElementById("stats-body");
+    if (!body) return;
+
+    body.innerHTML = `
         <div class="grid grid-6" style="margin-bottom:20px">
           ${["طلبات اليوم|today|zap|#e0f2fe|#0284c7", "هذا الشهر|month|calendar|#dbeafe|#2563eb", "الإجمالي|total|package|#ede9fe|#8b5cf6", "مقبولة|accepted|checkCircle|#d1fae5|#059669", "مرفوضة|rejected|xCircle|#fee2e2|#dc2626", "جزئية|partial|split|#fef3c7|#d97706"]
         .map((s) => {
@@ -270,7 +316,7 @@ App.pages = App.pages || {};
         <div class="grid" style="grid-template-columns:1.9fr 1fr;margin-bottom:20px" id="stats-charts">
           <div class="card">
             <div class="card-head">
-              <div class="card-title">${icon("chart", 20)} حركة الطلبات — آخر 30 يوم</div>
+              <div class="card-title">${icon("chart", 20)} حركة الطلبات ${range ? "— المدة المختارة" : "— آخر 30 يوم"}</div>
               <span class="badge badge-accepted">${icon("coins", 14)} إيرادات: ${fmtMoney(st.revenue)}</span>
             </div>
             <div class="chart-box" id="st-area"></div>
@@ -283,7 +329,7 @@ App.pages = App.pages || {};
 
         <div class="card">
           <div class="card-head">
-            <div class="card-title">${icon("store", 20)} إحصائيات الصيدليات — للمحاسبة الشهرية</div>
+            <div class="card-title">${icon("store", 20)} إحصائيات الصيدليات — للمحاسبة${range ? " (المدة المختارة)" : " الشهرية"}</div>
             <button class="btn btn-soft btn-sm" id="export-csv">${icon("fileText", 15)} تصدير CSV</button>
           </div>
           <div class="field" style="margin-bottom:18px">
@@ -293,13 +339,47 @@ App.pages = App.pages || {};
             </div>
           </div>
           <div id="stat-ph-table"></div>
-        </div>
-      </div>`;
+        </div>`;
+
+    App.charts.areaChart(
+      document.getElementById("st-area"),
+      range ? S().rangeSeries(range.from, range.to) : S().dailySeries(30),
+      { height: 260 }
+    );
+    App.charts.donut(document.getElementById("st-donut"), [
+      { label: "مقبول", value: st.accepted, color: "#10b981" },
+      { label: "قيد الانتظار", value: st.pending, color: "#f59e0b" },
+      { label: "جزئي", value: st.partial, color: "#0ea5e9" },
+      { label: "مرفوض", value: st.rejected, color: "#ef4444" },
+    ], { size: 180, thickness: 24 });
+    const grid = document.getElementById("stats-charts");
+    if (window.innerWidth < 1100 && grid) grid.style.gridTemplateColumns = "1fr";
+
+    renderPharmacyStatsTable();
+
+    document.getElementById("stat-ph-search").addEventListener("input", (e) => {
+      statPhQuery = e.target.value;
+      renderPharmacyStatsTable();
+    });
+
+    /* تصدير CSV — بيصدّر الصيدليات ضمن المدة المختارة حاليًا (أو الكل لو مفيش فلتر) */
+    document.getElementById("export-csv").onclick = () => {
+      const rows = [["الصيدلية", "الصيدلي", "منفذة", "جزئية", "مرفوضة", "الإجمالي", "الإيرادات"]];
+      S().pharmacyStats(currentRange).forEach((p) => rows.push([p.name, p.pharmacist, p.accepted, p.partial, p.rejected, p.total, p.revenue]));
+      const csv = "﻿" + rows.map((r) => r.join(",")).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      a.download = currentRange
+        ? `pharmacy-stats_${statsRange.from || "start"}_${statsRange.to || "end"}.csv`
+        : "pharmacy-stats.csv";
+      a.click();
+      toast("تم تصدير الملف", a.download, "success");
+    };
   }
 
-  /* 🆕 تُعيد رسم جدول إحصائيات الصيدليات فقط حسب نص البحث الحالي */
+  /* 🆕 تُعيد رسم جدول إحصائيات الصيدليات فقط، حسب نص البحث + currentRange الحاليين */
   function renderPharmacyStatsTable() {
-    const ph = S().pharmacyStats();
+    const ph = S().pharmacyStats(currentRange);
     const q = statPhQuery.trim().toLowerCase();
     const filtered = q
       ? ph.filter((p) =>
@@ -312,7 +392,7 @@ App.pages = App.pages || {};
     if (!target) return;
 
     if (!filtered.length) {
-      target.innerHTML = emptyState("store", "لا توجد نتائج", "جرّب اسمًا آخر أو تحقق من الإملاء");
+      target.innerHTML = emptyState("store", "لا توجد نتائج", "جرّب اسمًا آخر أو تحقق من الإملاء، أو وسّع المدة المختارة");
       return;
     }
 
@@ -351,42 +431,75 @@ App.pages = App.pages || {};
       </div>`;
   }
 
+  /* 🆕 صياغة تسمية المدة المختارة (نعرضها جنب عنوان الفلتر) */
+  function formatRangeLabel() {
+    const label = document.getElementById("range-label");
+    if (!label) return;
+    if (!currentRange) { label.textContent = "الوضع الحالي: كل الوقت (Lifetime)"; return; }
+    const from = statsRange.from || "البداية";
+    const to = statsRange.to || "النهاردة";
+    label.textContent = `الوضع الحالي: من ${from} إلى ${to}`;
+  }
+
   App.pages.statistics = {
     title: "الإحصائيات",
     crumb: "تحليلات شاملة للطلبات والصيدليات",
     roles: ["admin"],
     render: statisticsHTML,
     mount() {
-      const st = S().stats();
-      App.charts.areaChart(document.getElementById("st-area"), S().dailySeries(30), { height: 260 });
-      App.charts.donut(document.getElementById("st-donut"), [
-        { label: "مقبول", value: st.accepted, color: "#10b981" },
-        { label: "قيد الانتظار", value: st.pending, color: "#f59e0b" },
-        { label: "جزئي", value: st.partial, color: "#0ea5e9" },
-        { label: "مرفوض", value: st.rejected, color: "#ef4444" },
-      ], { size: 180, thickness: 24 });
-      const grid = document.getElementById("stats-charts");
-      if (window.innerWidth < 1100 && grid) grid.style.gridTemplateColumns = "1fr";
+      /* عند فتح الصفحة: لو فيه مدة محفوظة من زيارة سابقة (currentRange) نطبّقها،
+         وإلا نبدأ بوضع "كل الوقت" */
+      currentRange = (statsRange.from || statsRange.to) ? statsRange : null;
+      formatRangeLabel();
+      renderStatsBody();
 
-      renderPharmacyStatsTable();
-
-      const searchInput = document.getElementById("stat-ph-search");
-      searchInput.addEventListener("input", (e) => {
-        statPhQuery = e.target.value;
-        renderPharmacyStatsTable();
-      });
-
-      /* تصدير CSV — بيصدّر كل الصيدليات دايمًا (بغض النظر عن نص البحث) عشان يفضل مرجع محاسبي كامل */
-      document.getElementById("export-csv").onclick = () => {
-        const rows = [["الصيدلية", "الصيدلي", "منفذة", "جزئية", "مرفوضة", "الإجمالي", "الإيرادات"]];
-        S().pharmacyStats().forEach((p) => rows.push([p.name, p.pharmacist, p.accepted, p.partial, p.rejected, p.total, p.revenue]));
-        const csv = "﻿" + rows.map((r) => r.join(",")).join("\n");
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-        a.download = "pharmacy-stats.csv";
-        a.click();
-        toast("تم تصدير الملف", "pharmacy-stats.csv", "success");
+      document.getElementById("range-apply").onclick = () => {
+        statsRange = {
+          from: document.getElementById("range-from").value,
+          to: document.getElementById("range-to").value,
+        };
+        currentRange = (statsRange.from || statsRange.to) ? statsRange : null;
+        formatRangeLabel();
+        renderStatsBody();
       };
+
+      document.getElementById("range-reset").onclick = () => {
+        statsRange = { from: "", to: "" };
+        currentRange = null;
+        document.getElementById("range-from").value = "";
+        document.getElementById("range-to").value = "";
+        formatRangeLabel();
+        renderStatsBody();
+      };
+
+      document.querySelectorAll("[data-preset]").forEach((btn) => {
+        btn.onclick = () => {
+          const today = new Date();
+          let from, to;
+          if (btn.dataset.preset === "today") {
+            from = new Date(today); to = new Date(today);
+          } else if (btn.dataset.preset === "week") {
+            from = new Date(today); from.setDate(today.getDate() - today.getDay());
+            to = new Date(today);
+          } else if (btn.dataset.preset === "month") {
+            from = new Date(today.getFullYear(), today.getMonth(), 1);
+            to = new Date(today);
+          } else if (btn.dataset.preset === "30") {
+            from = new Date(today); from.setDate(today.getDate() - 29);
+            to = new Date(today);
+          }
+          const iso = (d) => {
+            const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+            return `${y}-${m}-${day}`;
+          };
+          statsRange = { from: iso(from), to: iso(to) };
+          currentRange = statsRange;
+          document.getElementById("range-from").value = statsRange.from;
+          document.getElementById("range-to").value = statsRange.to;
+          formatRangeLabel();
+          renderStatsBody();
+        };
+      });
     },
   };
 
